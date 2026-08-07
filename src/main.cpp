@@ -1,19 +1,8 @@
 #include <Arduino.h>
 
-#include "Canvas.h"
-#include "Display.h"
-#include "DisplayPanel.h"
-#include "Page.h"
-#include "input/InputHub.h"
-#include "input/SerialInput.h"
-#include "ui/UIButton.h"
-#include "ui/UIDebug.h"
-#include "ui/UIDiv.h"
-#include "ui/UIEvent.h"
-#include "ui/UINode.h"
-#include "ui/UIText.h"
+#include <Flow32.h>
 
-// Active panel — 1.8" ST7735 landscape module.
+// Active panel — switch for your glass.
 static const DisplayPanel kPanel = Panel18();
 // static const DisplayPanel kPanel = Panel183();
 
@@ -103,12 +92,10 @@ static void drawFrame(float dt) {
 void setup() {
   Serial.begin(115200);
   delay(200);
-  Serial.printf("Panel %s design %dx%d native %dx%d rot=%u chip=%d BL=GPIO%d\n",
+  Serial.printf("Flow32 demo | Panel %s design %dx%d native %dx%d rot=%u\n",
                 kPanel.id, kPanel.width, kPanel.height, kPanel.nativeWidth,
-                kPanel.nativeHeight, (unsigned)kPanel.rotation, (int)kPanel.chip,
-                kPanel.pinBl);
+                kPanel.nativeHeight, (unsigned)kPanel.rotation);
 
-  // Force backlight pin HIGH before anything else (LED → GPIO13).
   pinMode(kPanel.pinBl, OUTPUT);
   digitalWrite(kPanel.pinBl, HIGH);
 
@@ -117,10 +104,9 @@ void setup() {
     return;
   }
   display.setBacklight(true);
-  Serial.println("Display begin ok, backlight HIGH");
+  Serial.println("Display begin ok");
 
   input.add(serialInput);
-  // Later: input.add(joystickInput);
   input.begin();
 
   UIDebug::borders = kUIDebugBorders;
@@ -129,7 +115,6 @@ void setup() {
 }
 
 void loop() {
-  // Keep LED asserted every frame (cheap insurance).
   display.setBacklight(true);
 
   const uint32_t now = millis();

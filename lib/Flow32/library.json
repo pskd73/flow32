@@ -1,0 +1,25 @@
+{
+  "name": "Flow32",
+  "version": "0.1.0",
+  "description": "ESP32 UI toolkit for SPI TFT panels (framebuffer, canvas, composable UI, focus/scroll, input).",
+  "keywords": "esp32, tft, st7789, st7735, ui, display",
+  "authors": {
+    "name": "Flow32"
+  },
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "frameworks": "arduino",
+  "platforms": "espressif32",
+  "dependencies": {
+    "adafruit/Adafruit GFX Library": "*",
+    "adafruit/Adafruit ST7735 and ST7789 Library": "*",
+    "adafruit/Adafruit BusIO": "*"
+  },
+  "build": {
+    "libArchive": false,
+    "includeDir": "."
+  },
+  "headers": "Flow32.h"
+}

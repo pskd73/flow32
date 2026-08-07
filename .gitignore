@@ -1,4 +1,43 @@
+# PlatformIO
 .pio
-.vscode
+.pioenvs
+.piolibdeps
+.clangpioenvs
+.clangpiolibdeps
+
+# Build artifacts
 *.bin
 *.elf
+*.map
+*.hex
+*.o
+*.a
+*.d
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Python (font tools)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# Secrets / local env
+.env.*
+!.env.example
+
+# OS
+Thumbs.db
+Desktop.ini
+
+# Debug / logs
+*.log
+compile_commands.json
+.cache/
