@@ -21,9 +21,9 @@ static Storage storage(SdDefault());
 static ColorEmojiSd emojiSd;
 static IconSd iconSd;
 
-/** Active app — shell only holds hardware + this pointer. */
-static HomeApp home(Rect(0, 0, kPanel.width, kPanel.height));
-static AppBase *activeApp = &home;
+static const Rect kPanelRect(0, 0, kPanel.width, kPanel.height);
+static HomeApp home(kPanelRect);
+static Shell shell(kPanelRect);
 
 void setup() {
   Serial.begin(115200);
@@ -68,11 +68,12 @@ void setup() {
 
   UIDebug::borders = kUIDebugBorders;
 
-  if (!activeApp->open()) {
+  shell.setApp(&home);
+  if (!home.open()) {
     Serial.println("HomeApp: NVS open failed — using defaults");
   }
 
-  activeApp->frame(canvas, input, 0.04f);
+  shell.frame(canvas, input, 0.04f);
 }
 
 void loop() {
@@ -86,5 +87,5 @@ void loop() {
   const float dt = (now - last) / 1000.0f;
   last = now;
 
-  if (activeApp) activeApp->frame(canvas, input, dt);
+  shell.frame(canvas, input, dt);
 }

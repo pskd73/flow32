@@ -409,7 +409,10 @@ DrawResult Canvas::drawTextInBox(int16_t boxX, int16_t boxY, int16_t boxW,
   int16_t lines = 0;
 
   while (*p) {
-    if ((penY - boxY) + rowH > boxH) break;
+    // When lineHeight is set, allow a line if the absolute line box fits;
+    // otherwise require the full font metrics box (rowH).
+    const int16_t needH = (style.lineHeight > 0) ? lineH : rowH;
+    if ((penY - boxY) + needH > boxH) break;
 
     while (*p == ' ') p++;
     if (*p == '\n') {

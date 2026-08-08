@@ -27,19 +27,6 @@ void HomeApp::onBtnPress(UIButton &btn) {
                 (int)btn.variant());
 }
 
-bool HomeApp::onBodyEvent(UINode & /*self*/, UIEvent &e) {
-  if (!self_) return false;
-  if (e.key == UIKey::Back && e.phase == UIKeyPhase::Down) {
-    if (self_->pageIndex() != Main) {
-      self_->goTo(Main);
-      return true;
-    }
-    Serial.println("Back bubbled to body");
-    return true;
-  }
-  return false;
-}
-
 void HomeApp::onWifiToggle(UIToggle &t) {
   if (!self_) return;
   self_->setWifi(t.checked());
@@ -74,7 +61,7 @@ void HomeApp::onOpenTheme(UIButton & /*btn*/) {
 
 void HomeApp::onBackMain(UIButton & /*btn*/) {
   if (!self_) return;
-  self_->goTo(Main);
+  self_->back();
 }
 
 UIButton &HomeApp::makeBtn(Page &p, const char *label, ButtonColor color,
@@ -178,7 +165,6 @@ void HomeApp::buildMain(Page &p) {
   const uint16_t muted = Theme::lerp(th.baseContent, th.base100, 0.4f);
   const uint16_t card = th.base200;
 
-  iconText(titleLine_, sizeof(titleLine_), "house", "Home");
   iconText(onlineLine_, sizeof(onlineLine_), "radio", "Online");
   iconText(heatLine_, sizeof(heatLine_), "flame", "Heat");
   iconText(humidLine_, sizeof(humidLine_), "droplet", "Humid");
@@ -191,22 +177,11 @@ void HomeApp::buildMain(Page &p) {
                      .setColumns(2)
                      .setGap(8)
                      .setAlignV(Align::Center))
-          .add(p.div()
+          .add(p.text("nested grid · stacks")
                    .style(Style()
-                              .setWidth(Length::Pct(100))
-                              .setColumns(1)
-                              .setGap(2))
-                   .add(p.text(titleLine_).style(
-                       Style()
-                           .setFont(FontRole::BodyLarge)
-                           .setColor(fg)
-                           .setIconSize(28)
-                           .setWidth(Length::Pct(100))))
-                   .add(p.text("nested grid · stacks")
-                            .style(Style()
-                                       .setFont(FontRole::Small)
-                                       .setColor(muted)
-                                       .setWidth(Length::Pct(100)))))
+                              .setFont(FontRole::Small)
+                              .setColor(muted)
+                              .setWidth(Length::Pct(100))))
           .add(p.div()
                    .style(Style()
                               .setWidth(Length::Pct(100))
@@ -266,7 +241,7 @@ void HomeApp::buildMain(Page &p) {
                                           .setColor(fg)
                                           .setEmojiSize(20)
                                           .setWidth(Length::Pct(100))))
-          .add(p.text("HomeApp owns Main + Theme pages — Back returns here.")
+          .add(p.text("Press b / Back to pop the stack — scroll is restored.")
                    .style(Style()
                               .setFont(FontRole::Small)
                               .setColor(muted)
@@ -311,7 +286,6 @@ void HomeApp::buildMain(Page &p) {
                      .setPadding(Edges(16, 10))
                      .setGap(12)
                      .setColumns(1))
-          .onEvent(onBodyEvent)
           .add(header)
           .add(stats)
           .add(split)
@@ -323,10 +297,7 @@ void HomeApp::buildMain(Page &p) {
 void HomeApp::buildTheme(Page &p) {
   const HomeState &st = state();
   const Theme::ThemeTokens &th = Theme::active();
-  const uint16_t fg = th.baseContent;
   const uint16_t muted = Theme::lerp(th.baseContent, th.base100, 0.4f);
-
-  iconText(titleLine_, sizeof(titleLine_), "palette", "Theme");
 
   auto &header =
       p.div()
@@ -334,11 +305,6 @@ void HomeApp::buildTheme(Page &p) {
                      .setWidth(Length::Pct(100))
                      .setColumns(1)
                      .setGap(2))
-          .add(p.text(titleLine_).style(Style()
-                                            .setFont(FontRole::BodyLarge)
-                                            .setColor(fg)
-                                            .setIconSize(28)
-                                            .setWidth(Length::Pct(100))))
           .add(p.text("Pick a look — saved with HomeApp state.")
                    .style(Style()
                               .setFont(FontRole::Small)
@@ -395,7 +361,6 @@ void HomeApp::buildTheme(Page &p) {
                      .setPadding(Edges(16, 10))
                      .setGap(12)
                      .setColumns(1))
-          .onEvent(onBodyEvent)
           .add(header)
           .add(chooser)
           .add(nav);

@@ -5,7 +5,7 @@
 #include <stdio.h>
 
 /**
- * Home demo — state + Main / Theme pages.
+ * Home demo — state + Main / Theme pages under the Flow32 Shell.
  * Magic/version gate older NVS layouts.
  */
 struct HomeState {
@@ -28,7 +28,8 @@ public:
   enum PageId : uint8_t { Main = 0, Theme = 1 };
 
   explicit HomeApp(const Rect &viewport) : App(viewport) {
-    setPageCount(2);
+    addPage("Home");
+    addPage("Theme");
     self_ = this;
   }
 
@@ -45,6 +46,13 @@ public:
   }
 
   void setTheme(int16_t v) { set(data().theme, v); }
+
+  uint8_t shellStatusCount() const override { return 2; }
+  const char *shellStatusIcon(uint8_t i) const override {
+    if (i == 0) return state().wifiOn ? "wifi" : "wifi-off";
+    if (i == 1) return state().notifyOn ? "bell" : "bell-off";
+    return nullptr;
+  }
 
 protected:
   const char *nvsNamespace() const override { return "home"; }
@@ -89,7 +97,6 @@ private:
   void buildTheme(Page &p);
 
   static void onBtnPress(UIButton &btn);
-  static bool onBodyEvent(UINode &self, UIEvent &e);
   static void onWifiToggle(UIToggle &t);
   static void onNotifyToggle(UIToggle &t);
   static void onVolumeChange(UIRange &r);

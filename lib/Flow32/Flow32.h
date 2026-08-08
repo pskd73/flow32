@@ -3,7 +3,7 @@
 /**
  * Flow32 — ESP32 SPI TFT UI toolkit.
  *
- * Display / Canvas / Page + composable UI + input hub + App/AppStore.
+ * Display / Canvas / Page + composable UI + input hub + App/Shell.
  * Pass a DisplayPanel from the app (see src/panels.h in this repo).
  */
 
@@ -42,3 +42,4 @@
 
 #include "AppStore.h"
 #include "App.h"
+#include "Shell.h"

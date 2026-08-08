@@ -6,42 +6,63 @@
 #include "Rect.h"
 #include "input/InputHub.h"
 #include "ui/Theme.h"
+#include "ui/UIEvent.h"
+
+/** How `App::goTo` updates the navigation stack. */
+enum class NavMode : uint8_t {
+  Push,    // push a new entry (previous scroll saved)
+  Replace, // replace the top entry (stack depth unchanged)
+};
 
 /** Type-erased app for the shell (switch Gallery / Home / …). */
 class AppBase {
 public:
   virtual ~AppBase() = default;
 
-  /** Load state (NVS) and prepare UI. */
   virtual bool open() = 0;
-  /** Flush state and tear down. */
   virtual void close() = 0;
 
   /**
-   * One frame: rebuild dirty page UI, dispatch input, tick, draw, persist.
+   * Content frame only (no chrome). Shell sets the content viewport first,
+   * then draws the nav bar after this returns (unless fullscreen).
    */
   virtual void frame(Canvas &canvas, InputHub &input, float dt) = 0;
+
+  /** Full panel bounds (Shell owns layout). */
+  virtual void setPanel(const Rect &panel) = 0;
+  /** Scrollable content region under (or instead of) the nav bar. */
+  virtual void setContentViewport(const Rect &content) = 0;
+
+  virtual const char *shellTitle() const = 0;
+  virtual bool shellFullscreen() const = 0;
+
+  /** Right-side status icons (Lucide names); Shell draws them. */
+  virtual uint8_t shellStatusCount() const { return 0; }
+  virtual const char *shellStatusIcon(uint8_t /*i*/) const { return nullptr; }
 };
 
 /**
- * App = persistent state (AppStore) + one scroll Page + logical pages.
+ * App = persistent state (AppStore) + one scroll Page + a navigation stack.
  *
- * Multiple screens share one Page (rebuild on `goTo`). `build(page, index)`
- * paints the active logical page.
+ * Register pages in the ctor with titles (shown in the Shell nav bar):
  *
- *   class HomeApp : public App<HomeState> {
- *   public:
- *     explicit HomeApp(const Rect &vp) : App(vp) { setPageCount(2); }
- *   protected:
- *     const char *nvsNamespace() const override { return "home"; }
- *     void build(Page &page, uint8_t pageIndex) override;
- *   };
+ *   addPage("Home");
+ *   addPage("Theme");
+ *   addPage("Player", true);  // fullscreen
+ *
+ * Then `build(page, pageId)` paints the active page. Stack entries store
+ * scroll/focus so Back restores them.
  */
 template <typename S> class App : public AppBase {
 public:
   static constexpr uint8_t kMaxPages = 8;
+  static constexpr uint8_t kMaxStack = 8;
 
-  explicit App(const Rect &viewport) : page_(viewport) {}
+  explicit App(const Rect &viewport)
+      : panel_(viewport), page_(viewport) {
+    stack_[0] = NavEntry{};
+    depth_ = 1;
+  }
 
   ~App() override { close(); }
 
@@ -52,25 +73,80 @@ public:
   bool ready() const { return store_.ready(); }
 
   uint8_t pageCount() const { return pageCount_; }
-  uint8_t pageIndex() const { return activePage_; }
+  /** Top-of-stack logical page id. */
+  uint8_t pageId() const { return stack_[depth_ - 1].pageId; }
+  uint8_t pageIndex() const { return pageId(); }
+  uint8_t stackDepth() const { return depth_; }
+  bool canGoBack() const { return depth_ > 1; }
+
+  /** Nav title for a registered page (empty if unknown). */
+  const char *titleOf(uint8_t id) const {
+    if (id >= pageCount_ || !pages_[id].title) return "";
+    return pages_[id].title;
+  }
+
   Page &page() { return page_; }
   const Page &page() const { return page_; }
 
-  /** Switch logical page (marks dirty so `build` runs before next paint). */
-  void goTo(uint8_t index) {
-    if (index >= pageCount_) return;
-    if (index == activePage_ && !store_.isDirty()) return;
-    activePage_ = index;
-    page_.scrollToImmediate(0);
-    page_.clearFocus();
+  void setPanel(const Rect &panel) override { panel_ = panel; }
+
+  void setContentViewport(const Rect &content) override {
+    if (content.x == page_.viewport().x && content.y == page_.viewport().y &&
+        content.w == page_.viewport().w && content.h == page_.viewport().h) {
+      return;
+    }
+    page_.setViewport(content);
     store_.markDirty();
-    // Don't defer behind press/scroll anim — avoids one-frame flash of old page.
-    navPending_ = true;
+  }
+
+  const char *shellTitle() const override { return pageTitle(pageId()); }
+  bool shellFullscreen() const override { return pageFullscreen(pageId()); }
+
+  /**
+   * Navigate to a logical page.
+   * Push saves the current scroll/focus; Replace overwrites the top entry.
+   */
+  void goTo(uint8_t id, NavMode mode = NavMode::Push) {
+    if (id >= pageCount_) return;
+
+    if (mode == NavMode::Push) {
+      if (id == pageId() && !store_.isDirty()) return;
+      saveTopChrome();
+      if (depth_ >= kMaxStack) {
+        // Stack full — replace top instead of overflowing.
+        mode = NavMode::Replace;
+      } else {
+        stack_[depth_] = NavEntry{};
+        stack_[depth_].pageId = id;
+        depth_++;
+        activateTop(/*restoreScroll=*/false);
+        return;
+      }
+    }
+
+    // Replace
+    if (id == pageId() && !store_.isDirty()) return;
+    stack_[depth_ - 1].pageId = id;
+    stack_[depth_ - 1].scrollY = 0;
+    stack_[depth_ - 1].focusIndex = Page::kNoFocus;
+    activateTop(/*restoreScroll=*/false);
+  }
+
+  /** Pop the stack (Back). Returns false if already at root. */
+  bool back() {
+    if (depth_ <= 1) return false;
+    depth_--;
+    activateTop(/*restoreScroll=*/true);
+    return true;
   }
 
   bool open() override {
     if (!begin(nvsNamespace(), saveDebounceMs())) return false;
-    activePage_ = 0;
+    stack_[0] = NavEntry{};
+    depth_ = 1;
+    restoreScroll_ = false;
+    restoreScrollY_ = 0;
+    store_.markDirty();
     return true;
   }
 
@@ -83,13 +159,8 @@ public:
     const Theme::ThemeTokens &th = Theme::active();
     page_.setContentBackground(th.base100);
 
-    // Tree must exist before input (first open / deferred dirty).
     rebuildIfNeeded(canvas);
-
-    // goTo / setters run here and mark dirty after the check above.
-    input.dispatchTo(page_);
-
-    // Apply navigation/state in the same frame so we don't paint the old page.
+    dispatchInput(input);
     rebuildIfNeeded(canvas);
 
     page_.tick(dt);
@@ -98,22 +169,40 @@ public:
   }
 
 protected:
-  /** NVS namespace for this app (e.g. "home"). */
   virtual const char *nvsNamespace() const = 0;
   virtual uint32_t saveDebounceMs() const { return 300; }
 
-  /** How many logical pages (1..kMaxPages). Call from ctor. */
-  void setPageCount(uint8_t n) {
-    if (n < 1) n = 1;
-    if (n > kMaxPages) n = kMaxPages;
-    pageCount_ = n;
+  /**
+   * Register a page (id = 0, 1, … in call order). `title` is shown in the
+   * Shell nav bar. Pointer must outlive the app (use string literals).
+   */
+  uint8_t addPage(const char *title, bool fullscreen = false) {
+    if (pageCount_ >= kMaxPages) return 0xFF;
+    const uint8_t id = pageCount_;
+    pages_[id].title = title ? title : "";
+    pages_[id].fullscreen = fullscreen;
+    pageCount_++;
+    return id;
   }
 
-  /**
-   * Build the widget tree for `pageIndex` into `page`.
-   * Called when state is dirty (or after goTo).
-   */
-  virtual void build(Page &page, uint8_t pageIndex) = 0;
+  /** Update a registered page's nav title (literal / stable pointer). */
+  void setPageTitle(uint8_t id, const char *title) {
+    if (id >= pageCount_) return;
+    pages_[id].title = title ? title : "";
+  }
+
+  void setPageFullscreen(uint8_t id, bool fullscreen) {
+    if (id >= pageCount_) return;
+    pages_[id].fullscreen = fullscreen;
+  }
+
+  virtual void build(Page &page, uint8_t pageId) = 0;
+
+  /** Default: title from `addPage`. Override for dynamic titles. */
+  virtual const char *pageTitle(uint8_t id) const { return titleOf(id); }
+  virtual bool pageFullscreen(uint8_t id) const {
+    return id < pageCount_ && pages_[id].fullscreen;
+  }
 
   virtual void onOpen() {}
   virtual void onClose() {}
@@ -137,23 +226,78 @@ protected:
   }
 
 private:
+  struct PageDef {
+    const char *title = "";
+    bool fullscreen = false;
+  };
+
+  struct NavEntry {
+    uint8_t pageId = 0;
+    int16_t scrollY = 0;
+    uint8_t focusIndex = Page::kNoFocus;
+  };
+
+  void saveTopChrome() {
+    NavEntry &top = stack_[depth_ - 1];
+    top.scrollY = page_.scrollY();
+    top.focusIndex = page_.focusIndex();
+  }
+
+  void activateTop(bool restoreScroll) {
+    page_.clearFocus();
+    if (!restoreScroll) {
+      page_.scrollToImmediate(0);
+      restoreScroll_ = false;
+    } else {
+      restoreScroll_ = true;
+      restoreScrollY_ = stack_[depth_ - 1].scrollY;
+      restoreFocus_ = stack_[depth_ - 1].focusIndex;
+    }
+    store_.markDirty();
+    navPending_ = true;
+  }
+
+  void dispatchInput(InputHub &input) {
+    UIEvent e;
+    while (input.pop(e)) {
+      if (e.key == UIKey::Back && e.phase == UIKeyPhase::Down) {
+        if (back()) continue;
+      }
+      page_.dispatch(e);
+    }
+  }
+
   void rebuildIfNeeded(Canvas &canvas) {
     if (!store_.isDirty()) return;
-    // Defer in-page edits during press/scroll anim; never defer page switches.
     if (!navPending_ && page_.uiAnimating()) return;
 
     page_.beginUI();
-    build(page_, activePage_);
+    build(page_, pageId());
     page_.layoutUI(canvas);
     page_.syncFocus();
+
+    if (restoreScroll_) {
+      page_.scrollToImmediate(restoreScrollY_);
+      if (restoreFocus_ != Page::kNoFocus) {
+        page_.setFocusIndex(restoreFocus_);
+      }
+      restoreScroll_ = false;
+    }
+
     page_.invalidateContent();
     store_.consumeDirty();
     navPending_ = false;
   }
 
   AppStore<S> store_{};
+  Rect panel_{};
   Page page_;
-  uint8_t pageCount_ = 1;
-  uint8_t activePage_ = 0;
+  PageDef pages_[kMaxPages] = {};
+  NavEntry stack_[kMaxStack] = {};
+  uint8_t depth_ = 1;
+  uint8_t pageCount_ = 0;
   bool navPending_ = false;
+  bool restoreScroll_ = false;
+  int16_t restoreScrollY_ = 0;
+  uint8_t restoreFocus_ = Page::kNoFocus;
 };
