@@ -15,18 +15,21 @@
  * Flow32 shell: nav bar + content viewport around an AppBase.
  *
  *   Shell shell(Rect(0, 0, w, h));
+ *   shell.setHost(&flow);
  *   shell.setApp(home);
  *   shell.frame(canvas, input, dt);
  *
+ * Owns the Back key: in-app goBack → clear focus → openLauncher.
  * Nav: padded div, 2 columns — title | status icons (right-aligned, packed).
  * Fullscreen pages hide the bar and use the full panel.
  */
 class Shell {
 public:
-  static constexpr int16_t kNavHeight = 32;
+  static constexpr int16_t kNavHeight = 36;
   /** Extra inset for curved panel edges. */
   static constexpr int16_t kNavPadLeft = 28;
   static constexpr int16_t kNavPadRight = 28;
+  static constexpr int16_t kNavPadY = 6;
   static constexpr int16_t kStatusIcon = 14;
   static constexpr uint8_t kMaxStatus = 4;
 
@@ -40,6 +43,9 @@ public:
   }
   Rect panel() const { return panel_; }
 
+  void setHost(AppHost *host) { host_ = host; }
+  AppHost *host() const { return host_; }
+
   void setApp(AppBase *app) { app_ = app; }
   AppBase *app() const { return app_; }
 
@@ -51,6 +57,10 @@ public:
   int16_t navHeight() const { return navH_; }
 
   void frame(Canvas &canvas, InputHub &input, float dt) {
+    if (!app_) return;
+
+    // May switch apps (root Back → launcher); apply layout to the active app after.
+    handleBack(input);
     if (!app_) return;
 
     app_->setPanel(panel_);
@@ -71,10 +81,42 @@ public:
 
 private:
   Rect panel_{};
+  AppHost *host_ = nullptr;
   AppBase *app_ = nullptr;
   int16_t navH_ = kNavHeight;
   Page navPage_;
   char statusLine_[48] = {};
+
+  /**
+   * Consume Back+Down from the queue (apps never see it).
+   * Policy: goBack → clear focus → launcher.
+   */
+  void handleBack(InputHub &input) {
+    UIEvent kept[InputHub::kMaxQueue];
+    uint8_t n = 0;
+    bool backDown = false;
+    UIEvent e;
+    while (input.pop(e)) {
+      if (e.key == UIKey::Back && e.phase == UIKeyPhase::Down) {
+        backDown = true;
+      } else if (e.key != UIKey::Back) {
+        if (n < InputHub::kMaxQueue) kept[n++] = e;
+      }
+      // Back Up / other phases dropped — shell owns the key.
+    }
+    for (uint8_t i = 0; i < n; i++) input.push(kept[i]);
+    if (!backDown || !app_) return;
+
+    if (app_->canGoBack()) {
+      app_->goBack();
+      return;
+    }
+    if (app_->contentHasFocus()) {
+      app_->clearContentFocus();
+      return;
+    }
+    if (host_) host_->openLauncher();
+  }
 
   void buildStatusLine(IconSd *icons) {
     statusLine_[0] = '\0';
@@ -120,7 +162,8 @@ private:
             .style(Style()
                        .setWidth(Length::Pct(100))
                        .setHeight(Length::Px(navH_))
-                       .setPadding(Edges(0, kNavPadRight, 0, kNavPadLeft))
+                       .setPadding(Edges(kNavPadY, kNavPadRight, kNavPadY,
+                                         kNavPadLeft))
                        .setColumns(2)
                        .setGap(8)
                        .setAlignV(Align::Center)

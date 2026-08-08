@@ -3,7 +3,7 @@
 /**
  * Flow32 — ESP32 SPI TFT UI toolkit.
  *
- * Display / Canvas / Page + composable UI + input hub + App/Shell.
+ * Display / Canvas / Page + composable UI + input hub + App/Shell/Flow32 runtime.
  * Pass a DisplayPanel from the app (see src/panels.h in this repo).
  */
 
@@ -41,5 +41,7 @@
 #include "input/JoystickInput.h"
 
 #include "AppStore.h"
+#include "AppHost.h"
 #include "App.h"
 #include "Shell.h"
+#include "FlowRuntime.h"

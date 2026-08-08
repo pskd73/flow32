@@ -1,12 +1,16 @@
 #pragma once
 
 #include "AppStore.h"
+#include "AppHost.h"
 #include "Canvas.h"
 #include "Page.h"
 #include "Rect.h"
 #include "input/InputHub.h"
 #include "ui/Theme.h"
 #include "ui/UIEvent.h"
+
+class IconSd;
+class ColorEmojiSd;
 
 /** How `App::goTo` updates the navigation stack. */
 enum class NavMode : uint8_t {
@@ -36,9 +40,47 @@ public:
   virtual const char *shellTitle() const = 0;
   virtual bool shellFullscreen() const = 0;
 
+  /**
+   * In-app navigation stack (Shell owns the Back key):
+   * canGoBack → goBack; else clear focus; else openLauncher.
+   */
+  virtual bool canGoBack() const { return false; }
+  virtual bool goBack() { return false; }
+  virtual bool contentHasFocus() const { return false; }
+  virtual void clearContentFocus() {}
+
+  /**
+   * Optional app-level key handling (before Page). Return true to consume.
+   * Used e.g. by the launcher carousel for Left/Right.
+   */
+  virtual bool handleKey(UIEvent & /*e*/) { return false; }
+
+  /** Launcher metadata (literals). Prefer `setAppInfo` from the ctor. */
+  virtual const char *appName() const { return appName_; }
+  virtual const char *appIcon() const { return appIcon_; }
+
   /** Right-side status icons (Lucide names); Shell draws them. */
   virtual uint8_t shellStatusCount() const { return 0; }
   virtual const char *shellStatusIcon(uint8_t /*i*/) const { return nullptr; }
+
+  /** Called once after SD emoji/icon atlases are ready (may be null). */
+  virtual void onAssets(IconSd * /*icons*/, ColorEmojiSd * /*emoji*/) {}
+
+  /** Called when registered with Flow32 / AppHost. */
+  virtual void onAttach(AppHost &host) { host_ = &host; }
+
+  AppHost *host() const { return host_; }
+
+protected:
+  /** Set launcher name + Lucide icon (call from app ctor). */
+  void setAppInfo(const char *name, const char *lucideIcon) {
+    appName_ = name ? name : "";
+    appIcon_ = lucideIcon;
+  }
+
+  AppHost *host_ = nullptr;
+  const char *appName_ = "";
+  const char *appIcon_ = nullptr;
 };
 
 /**
@@ -77,7 +119,10 @@ public:
   uint8_t pageId() const { return stack_[depth_ - 1].pageId; }
   uint8_t pageIndex() const { return pageId(); }
   uint8_t stackDepth() const { return depth_; }
-  bool canGoBack() const { return depth_ > 1; }
+  bool canGoBack() const override { return depth_ > 1; }
+  bool goBack() override { return back(); }
+  bool contentHasFocus() const override { return page_.hasFocus(); }
+  void clearContentFocus() override { page_.clearFocus(); }
 
   /** Nav title for a registered page (empty if unknown). */
   const char *titleOf(uint8_t id) const {
@@ -260,9 +305,9 @@ private:
   void dispatchInput(InputHub &input) {
     UIEvent e;
     while (input.pop(e)) {
-      if (e.key == UIKey::Back && e.phase == UIKeyPhase::Down) {
-        if (back()) continue;
-      }
+      // Back is owned by Shell (nav pop / clear focus / launcher).
+      if (e.key == UIKey::Back) continue;
+      if (handleKey(e)) continue;
       page_.dispatch(e);
     }
   }

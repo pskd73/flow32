@@ -42,6 +42,9 @@ enum class Align : uint8_t { Start, Center, End };
 /** Div packing: 1 = column stack, 2–3 = wrapping grid. */
 enum class Unit : uint8_t { Auto, Px, Percent };
 
+/** CSS-like positioning. Absolute children are taken out of flow. */
+enum class Position : uint8_t { Relative, Absolute };
+
 enum class ButtonColor : uint8_t { Primary, Secondary, Accent };
 
 enum class ButtonVariant : uint8_t { Solid, Outline, Soft, Ghost };
@@ -122,6 +125,15 @@ public:
   /** Div: vertical place of stack / cell content (Top/Center/Bottom). */
   Align alignV = Align::Start;
   ImageFit objectFit = ImageFit::Cover;
+  /**
+   * Absolute → out of flow; placed via left/top/right/bottom relative to the
+   * parent's content box. Unset insets use Unit::Auto.
+   */
+  Position position = Position::Relative;
+  Length left = Length::Auto();
+  Length top = Length::Auto();
+  Length right = Length::Auto();
+  Length bottom = Length::Auto();
   /**
    * Absolute line box height in design px (0 = normal).
    * When 0, stride is font metrics + lineGap. When set, stride is lineHeight
@@ -215,6 +227,26 @@ public:
   }
   Style &setFit(ImageFit v) {
     objectFit = v;
+    return *this;
+  }
+  Style &setPosition(Position v) {
+    position = v;
+    return *this;
+  }
+  Style &setLeft(Length v) {
+    left = v;
+    return *this;
+  }
+  Style &setTop(Length v) {
+    top = v;
+    return *this;
+  }
+  Style &setRight(Length v) {
+    right = v;
+    return *this;
+  }
+  Style &setBottom(Length v) {
+    bottom = v;
     return *this;
   }
   Style &setLineHeight(uint8_t v) {

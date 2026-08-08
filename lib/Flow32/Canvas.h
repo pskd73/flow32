@@ -181,6 +181,8 @@ private:
   int16_t measureCharWidth(char c) const;
   int16_t measureCodeWidth(uint32_t cp) const;
   int16_t measureUtf8Width(const char *start, const char *end) const;
+  /** True if cp is a Lucide PUA icon or a known color-emoji glyph. */
+  bool isMediaCp(uint32_t cp) const;
   void syncEmojiDrawSize(uint8_t overridePx = 0);
   void drawUtf8Span(int16_t baselineScreenX, int16_t baselineScreenY,
                     const char *start, const char *end, uint16_t color);
