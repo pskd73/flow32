@@ -36,7 +36,7 @@ public:
 
   /**
    * Disabled: not focusable, ignores press, chrome at ~50% opacity over
-   * `disabledBackdrop` (defaults to Theme::surface()).
+   * `disabledBackdrop` (defaults to Theme::active().base100).
    */
   UIButton &disabled(bool v);
   bool disabled() const { return disabled_; }

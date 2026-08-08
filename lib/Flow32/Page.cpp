@@ -4,6 +4,8 @@
 #include "ui/UIImage.h"
 #include "ui/UINode.h"
 #include "ui/UIText.h"
+#include "ui/UIToggle.h"
+#include "ui/UIRange.h"
 
 #include <esp_heap_caps.h>
 #include <math.h>
@@ -93,6 +95,10 @@ void Page::beginUI() {
 UIDiv &Page::div() { return arena_.create<UIDiv>(); }
 
 UIButton &Page::button() { return arena_.create<UIButton>(); }
+
+UIToggle &Page::toggle() { return arena_.create<UIToggle>(); }
+
+UIRange &Page::range() { return arena_.create<UIRange>(); }
 
 UIText &Page::text(const char *s) { return arena_.create<UIText>(s); }
 

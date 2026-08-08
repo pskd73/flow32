@@ -2,6 +2,7 @@
 
 #include "AAFont.h"
 #include "ColorEmoji.h"
+#include "ColorEmojiSd.h"
 #include "Display.h"
 #include "Rect.h"
 #include "ui/Style.h"
@@ -10,6 +11,8 @@
 class UINode;
 class UIDiv;
 class UIButton;
+class UIToggle;
+class UIRange;
 class UIText;
 class UIImage;
 
@@ -18,7 +21,7 @@ struct TextStyle {
   uint16_t color = 0xFFFF;
   /** Absolute line box height in design px (0 = font + lineGap). */
   uint8_t lineHeight = 0;
-  uint8_t lineGap = 4;
+  uint8_t lineGap = 1;
   uint8_t paragraphGap = 8;
   /**
    * Force emoji draw size in design px (0 = match font line height).
@@ -90,8 +93,18 @@ public:
   void gap(int16_t dy);
 
   /** Color emoji atlas in flash (default null = no emoji). */
-  void setEmojiAtlas(const ColorEmojiAtlas *atlas) { emojiAtlas_ = atlas; }
+  void setEmojiAtlas(const ColorEmojiAtlas *atlas) {
+    emojiAtlas_ = atlas;
+    if (atlas) emojiSd_ = nullptr;
+  }
   const ColorEmojiAtlas *emojiAtlas() const { return emojiAtlas_; }
+
+  /** SD-backed emoji (preferred for large sets). Clears flash atlas pointer. */
+  void setEmojiSd(ColorEmojiSd *sd) {
+    emojiSd_ = sd;
+    if (sd) emojiAtlas_ = nullptr;
+  }
+  ColorEmojiSd *emojiSd() const { return emojiSd_; }
 
   DrawResult drawText(const char *text, const TextStyle &style,
                       bool advance = true);
@@ -120,6 +133,8 @@ public:
   void beginUI();
   UIDiv &div();
   UIButton &button();
+  UIToggle &toggle();
+  UIRange &range();
   UIText &text(const char *s);
   UIImage &image(const uint16_t *pixels, int16_t srcW, int16_t srcH);
   void add(UINode &node);
@@ -140,6 +155,7 @@ private:
   int16_t lastLineH_ = 0;
   const AAFont *aaFont_ = nullptr;
   const ColorEmojiAtlas *emojiAtlas_ = nullptr;
+  ColorEmojiSd *emojiSd_ = nullptr;
   int16_t emojiDrawPx_ = 0;
 
   UIArena arena_{};

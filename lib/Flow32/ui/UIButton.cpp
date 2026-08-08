@@ -12,12 +12,12 @@ constexpr float kDisabledOpacity = 0.5f; // mix toward backdrop
 
 UIButton::UIButton() {
   highlightable_ = true;
-  style_.padding = Edges(12, 14);
-  style_.radius = 12;
+  style_.padding = Edges(12, 18);
+  style_.radius = Theme::active().radiusField;
   style_.width = Length::Pct(100);
   style_.outlineWidth = 2;
   style_.outlineOutside = true;
-  disabledBackdrop_ = Theme::surface();
+  disabledBackdrop_ = Theme::active().base100;
   applyChrome();
 }
 

@@ -7,6 +7,8 @@
 #include "ui/UIDiv.h"
 #include "ui/UIImage.h"
 #include "ui/UIText.h"
+#include "ui/UIToggle.h"
+#include "ui/UIRange.h"
 
 #include <string.h>
 
@@ -185,7 +187,10 @@ int16_t Canvas::measureCharWidth(char c) const {
 
 void Canvas::syncEmojiDrawSize(uint8_t overridePx) {
   emojiDrawPx_ = 0;
-  if (!emojiAtlas_ || emojiAtlas_->bakedSize == 0) return;
+  const uint8_t baked =
+      emojiSd_ ? emojiSd_->bakedSize()
+               : (emojiAtlas_ ? emojiAtlas_->bakedSize : 0);
+  if (baked == 0) return;
   int16_t px;
   if (overridePx > 0) {
     px = sx(static_cast<int16_t>(overridePx));
@@ -197,10 +202,15 @@ void Canvas::syncEmojiDrawSize(uint8_t overridePx) {
 }
 
 int16_t Canvas::measureCodeWidth(uint32_t cp) const {
-  if (emojiAtlas_ && emojiDrawPx_ > 0) {
-    const ColorEmojiGlyph *eg = ColorEmojiDraw::find(*emojiAtlas_, cp);
-    if (eg) {
-      return ColorEmojiDraw::advance(*eg, emojiAtlas_->bakedSize, emojiDrawPx_);
+  if (emojiDrawPx_ > 0) {
+    if (emojiSd_ && emojiSd_->ready()) {
+      const int16_t adv = emojiSd_->advance(cp, emojiDrawPx_);
+      if (adv > 0) return adv;
+    } else if (emojiAtlas_) {
+      const ColorEmojiGlyph *eg = ColorEmojiDraw::find(*emojiAtlas_, cp);
+      if (eg) {
+        return ColorEmojiDraw::advance(*eg, emojiAtlas_->bakedSize, emojiDrawPx_);
+      }
     }
   }
   if (aaFont_) {
@@ -241,15 +251,22 @@ void Canvas::drawUtf8Span(int16_t baselineScreenX, int16_t baselineScreenY,
     if (!ColorEmojiDraw::nextUtf8(p, cp) || p > end) break;
     if (before == p) break;
 
-    if (emojiAtlas_ && emojiDrawPx_ > 0) {
-      const ColorEmojiGlyph *eg = ColorEmojiDraw::find(*emojiAtlas_, cp);
-      if (eg) {
-        ColorEmojiDraw::draw(display_, *emojiAtlas_, *eg, penX, baselineScreenY,
-                             emojiDrawPx_);
-        penX = static_cast<int16_t>(
-            penX + ColorEmojiDraw::advance(*eg, emojiAtlas_->bakedSize,
-                                           emojiDrawPx_));
+    if (emojiDrawPx_ > 0) {
+      if (emojiSd_ && emojiSd_->ready() &&
+          emojiSd_->draw(display_, cp, penX, baselineScreenY, emojiDrawPx_)) {
+        penX = static_cast<int16_t>(penX + emojiSd_->advance(cp, emojiDrawPx_));
         continue;
+      }
+      if (emojiAtlas_) {
+        const ColorEmojiGlyph *eg = ColorEmojiDraw::find(*emojiAtlas_, cp);
+        if (eg) {
+          ColorEmojiDraw::draw(display_, *emojiAtlas_, *eg, penX,
+                               baselineScreenY, emojiDrawPx_);
+          penX = static_cast<int16_t>(
+              penX + ColorEmojiDraw::advance(*eg, emojiAtlas_->bakedSize,
+                                             emojiDrawPx_));
+          continue;
+        }
       }
     }
 
@@ -591,6 +608,10 @@ void Canvas::beginUI() {
 UIDiv &Canvas::div() { return arena_.create<UIDiv>(); }
 
 UIButton &Canvas::button() { return arena_.create<UIButton>(); }
+
+UIToggle &Canvas::toggle() { return arena_.create<UIToggle>(); }
+
+UIRange &Canvas::range() { return arena_.create<UIRange>(); }
 
 UIText &Canvas::text(const char *s) { return arena_.create<UIText>(s); }
 

@@ -39,6 +39,7 @@ enum class ImageFit : uint8_t { Fill, Contain, Cover, Center };
 
 enum class Align : uint8_t { Start, Center, End };
 
+/** Div packing: 1 = column stack, 2–3 = wrapping grid. */
 enum class Unit : uint8_t { Auto, Px, Percent };
 
 enum class ButtonColor : uint8_t { Primary, Secondary, Accent };
@@ -109,7 +110,17 @@ public:
   uint8_t borderWidth = 0;
   bool hasBorder = false;
   FontRole font = FontRole::Body;
+  /** Text horizontal align (UIText). */
   Align align = Align::Start;
+  /**
+   * Div layout: 1 = vertical stack, 2–3 = equal-width wrapping columns.
+   * Clamped to 1..3 at layout time.
+   */
+  uint8_t columns = 1;
+  /** Div: horizontal place of children / cell content (Left/Center/Right). */
+  Align alignH = Align::Start;
+  /** Div: vertical place of stack / cell content (Top/Center/Bottom). */
+  Align alignV = Align::Start;
   ImageFit objectFit = ImageFit::Cover;
   /**
    * Absolute line box height in design px (0 = normal).
@@ -118,7 +129,7 @@ public:
    */
   uint8_t lineHeight = 0;
   /** Extra leading when lineHeight is 0 (design px). */
-  uint8_t lineGap = 4;
+  uint8_t lineGap = 1;
   /**
    * Emoji raster size in design px (0 = derive from font).
    * Values above the atlas baked size upscale.
@@ -186,6 +197,18 @@ public:
   }
   Style &setAlign(Align v) {
     align = v;
+    return *this;
+  }
+  Style &setColumns(uint8_t v) {
+    columns = v;
+    return *this;
+  }
+  Style &setAlignH(Align v) {
+    alignH = v;
+    return *this;
+  }
+  Style &setAlignV(Align v) {
+    alignV = v;
     return *this;
   }
   Style &setFit(ImageFit v) {

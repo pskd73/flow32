@@ -14,7 +14,9 @@
 #include "Rect.h"
 #include "AAFont.h"
 #include "ColorEmoji.h"
-#include "NotoColorEmoji.h"
+#include "ColorEmojiSd.h"
+#include "Storage.h"
+#include "StorageConfig.h"
 
 #include "ui/Style.h"
 #include "ui/Theme.h"
@@ -24,6 +26,8 @@
 #include "ui/UIText.h"
 #include "ui/UIImage.h"
 #include "ui/UIButton.h"
+#include "ui/UIToggle.h"
+#include "ui/UIRange.h"
 #include "ui/UIDebug.h"
 #include "ui/UIArena.h"
 
