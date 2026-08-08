@@ -22,11 +22,12 @@
  * Drawing goes into an off-screen framebuffer (PSRAM when available).
  * Call present() to push one SPI burst — never paint the panel mid-frame.
  *
- * Geometry / pins / chip come from DisplayPanel (Panel183, Panel18, …).
+ * pushDrawTarget() redirects drawing into an external buffer (e.g. page
+ * content cache) while present() always blits the panel-sized buffer.
  */
 class Display : public Adafruit_GFX {
 public:
-  explicit Display(const DisplayPanel &panel = Panel183());
+  explicit Display(const DisplayPanel &panel);
 
   bool begin();
 
@@ -36,20 +37,31 @@ public:
 
   void setBacklight(bool on);
 
+  /** Current draw target (panel FB or pushDrawTarget). */
   uint16_t *buffer() { return fb_; }
   const uint16_t *buffer() const { return fb_; }
+  /** Panel front buffer used by present(). */
+  uint16_t *panelBuffer() { return fbPanel_; }
+  const uint16_t *panelBuffer() const { return fbPanel_; }
+
   size_t bufferBytes() const {
     return (size_t)panel_.width * (size_t)panel_.height * sizeof(uint16_t);
   }
 
   void present();
-  /** Present a design-space dirty rect (mapped/scaled to native if needed). */
   void present(int16_t x, int16_t y, int16_t w, int16_t h);
+  /** Push a contiguous RGB565 rectangle from an external buffer (one SPI burst). */
+  void presentBuffer(const uint16_t *src, int16_t x, int16_t y, int16_t w,
+                     int16_t h);
 
   int16_t width() const { return panel_.width; }
   int16_t height() const { return panel_.height; }
-  int16_t nativeWidth() const { return panel_.nativeWidth; }
-  int16_t nativeHeight() const { return panel_.nativeHeight; }
+  int16_t drawWidth() const { return targetW_; }
+  int16_t drawHeight() const { return targetH_; }
+
+  /** Redirect drawing into an external RGB565 buffer (w×h). */
+  void pushDrawTarget(uint16_t *fb, int16_t w, int16_t h);
+  void popDrawTarget();
 
   void setClip(int16_t x, int16_t y, int16_t w, int16_t h);
   void clearClip();
@@ -80,6 +92,24 @@ public:
   void drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) override;
   void fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color) override;
 
+  /**
+   * Anti-aliased rounded rect fill (soft corners via coverage blend).
+   * Hides Adafruit_GFX::fillRoundRect when called on Display.
+   */
+  void fillRoundRect(int16_t x, int16_t y, int16_t w, int16_t h, int16_t r,
+                     uint16_t color);
+
+  /**
+   * Anti-aliased rounded stroke. `outside` grows beyond the box; otherwise
+   * the stroke sits inside the box edge (Adafruit drawRoundRect semantics).
+   */
+  void strokeRoundRect(int16_t x, int16_t y, int16_t w, int16_t h, int16_t r,
+                       uint8_t strokeW, uint16_t color, bool outside = false);
+
+  /** 1px inside AA stroke (compatible with Adafruit_GFX::drawRoundRect). */
+  void drawRoundRect(int16_t x, int16_t y, int16_t w, int16_t h, int16_t r,
+                     uint16_t color);
+
   uint16_t getPixel(int16_t x, int16_t y) const;
   void blendPixel(int16_t x, int16_t y, uint16_t fg, uint8_t cover4);
 
@@ -93,7 +123,7 @@ public:
     return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
   }
 
-  bool ready() const { return fb_ != nullptr && tft_ != nullptr; }
+  bool ready() const { return fbPanel_ != nullptr && tft_ != nullptr; }
 
   int16_t cornerRadius() const { return panel_.cornerRadius; }
 
@@ -102,8 +132,16 @@ private:
   Adafruit_ST7789 *st7789_ = nullptr;
   Adafruit_ST7735 *st7735_ = nullptr;
   Adafruit_ST77xx *tft_ = nullptr;
-  uint16_t *fb_ = nullptr;
-  uint16_t *presentLine_ = nullptr; // native-width scratch for downscale
+
+  uint16_t *fbPanel_ = nullptr; // presented to glass
+  uint16_t *fb_ = nullptr;      // current draw target
+  int16_t targetW_ = 0;
+  int16_t targetH_ = 0;
+
+  uint16_t *savedFb_ = nullptr;
+  int16_t savedW_ = 0;
+  int16_t savedH_ = 0;
+  bool targetPushed_ = false;
 
   bool clipEnabled_ = false;
   int16_t clipX_ = 0;
@@ -111,9 +149,7 @@ private:
   int16_t clipW_ = 0;
   int16_t clipH_ = 0;
 
-  void clipToPanel(int16_t &x, int16_t &y, int16_t &w, int16_t &h) const;
+  void clipToTarget(int16_t &x, int16_t &y, int16_t &w, int16_t &h) const;
   void clipToDraw(int16_t &x, int16_t &y, int16_t &w, int16_t &h) const;
   bool inClip(int16_t x, int16_t y) const;
-  void presentDirect(int16_t x, int16_t y, int16_t w, int16_t h);
-  void presentDownscaled(int16_t x, int16_t y, int16_t w, int16_t h);
 };

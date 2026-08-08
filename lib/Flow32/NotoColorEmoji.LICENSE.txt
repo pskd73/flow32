@@ -1,0 +1,7 @@
+This atlas embeds bitmap glyphs derived from Noto Color Emoji.
+
+Noto Color Emoji is licensed under the SIL Open Font License, Version 1.1.
+See: https://github.com/googlefonts/noto-emoji/blob/main/fonts/LICENSE
+
+Regenerate with:
+  python3 tools/noto_emoji_atlas.py -o lib/Flow32/NotoColorEmoji.h --baked 40

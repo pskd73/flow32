@@ -3,58 +3,55 @@
 
 #include <SPI.h>
 #include <esp_heap_caps.h>
+#include <math.h>
 #include <string.h>
 
 Display::Display(const DisplayPanel &panel)
-    : Adafruit_GFX(panel.width, panel.height), panel_(panel) {
-  panel_.finalize();
-}
+    : Adafruit_GFX(panel.width, panel.height), panel_(panel),
+      targetW_(panel.width), targetH_(panel.height) {}
 
 bool Display::begin() {
-  // Drive LED/BL immediately — many 1.8" modules need this pin HIGH to light.
   pinMode(panel_.pinBl, OUTPUT);
   digitalWrite(panel_.pinBl, panel_.blActiveHigh ? HIGH : LOW);
 
-  SPI.begin(panel_.pinSclk, -1 /* MISO unused */, panel_.pinMosi, panel_.pinCs);
+  // Hardware SPI only — the 5-arg Adafruit_ST7735(cs,dc,mosi,sclk,rst)
+  // constructor is software (bit-bang) SPI and paints a visible row-by-row wave.
+  // Leave SS as -1 so Adafruit owns CS; sharing SS with the TFT CS freezes
+  // transfers after the first frame on ESP32.
+  SPI.begin(panel_.pinSclk, -1 /* MISO unused */, panel_.pinMosi, -1);
 
   if (panel_.chip == PanelChip::ST7735) {
-    // Explicit MOSI/SCLK helps on ESP32 when not using the default VSPI mapping.
-    st7735_ = new Adafruit_ST7735(panel_.pinCs, panel_.pinDc, panel_.pinMosi,
-                                  panel_.pinSclk, panel_.pinRst);
+    st7735_ =
+        new Adafruit_ST7735(&SPI, panel_.pinCs, panel_.pinDc, panel_.pinRst);
     st7735_->initR(INITR_18BLACKTAB);
     st7735_->setSPISpeed(panel_.spiHz);
     st7735_->setRotation(panel_.rotation);
     tft_ = st7735_;
   } else {
-    st7789_ = new Adafruit_ST7789(panel_.pinCs, panel_.pinDc, panel_.pinRst);
+    st7789_ =
+        new Adafruit_ST7789(&SPI, panel_.pinCs, panel_.pinDc, panel_.pinRst);
     st7789_->init(panel_.gramWidth, panel_.gramHeight);
     st7789_->setSPISpeed(panel_.spiHz);
     st7789_->setRotation(panel_.rotation);
     tft_ = st7789_;
   }
 
-  // Re-assert after SPI init in case the bus touched nearby pins.
   setBacklight(true);
 
   const size_t bytes = bufferBytes();
-  fb_ = (uint16_t *)heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  if (!fb_) {
-    fb_ = (uint16_t *)heap_caps_malloc(bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  fbPanel_ =
+      (uint16_t *)heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!fbPanel_) {
+    fbPanel_ = (uint16_t *)heap_caps_malloc(bytes,
+                                            MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   }
-  if (!fb_ || !tft_) {
+  if (!fbPanel_ || !tft_) {
     return false;
   }
-  memset(fb_, 0, bytes);
-
-  if (panel_.needsDownscale()) {
-    const size_t lineBytes =
-        (size_t)panel_.nativeWidth * sizeof(uint16_t);
-    presentLine_ = (uint16_t *)heap_caps_malloc(
-        lineBytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    if (!presentLine_) {
-      return false;
-    }
-  }
+  memset(fbPanel_, 0, bytes);
+  fb_ = fbPanel_;
+  targetW_ = panel_.width;
+  targetH_ = panel_.height;
 
   useFontBody();
   setTextColor(0xFFFF);
@@ -66,6 +63,27 @@ void Display::setBacklight(bool on) {
   pinMode(panel_.pinBl, OUTPUT);
   const bool level = panel_.blActiveHigh ? on : !on;
   digitalWrite(panel_.pinBl, level ? HIGH : LOW);
+}
+
+void Display::pushDrawTarget(uint16_t *fb, int16_t w, int16_t h) {
+  if (targetPushed_ || !fb || w <= 0 || h <= 0) return;
+  savedFb_ = fb_;
+  savedW_ = targetW_;
+  savedH_ = targetH_;
+  fb_ = fb;
+  targetW_ = w;
+  targetH_ = h;
+  targetPushed_ = true;
+  clearClip();
+}
+
+void Display::popDrawTarget() {
+  if (!targetPushed_) return;
+  fb_ = savedFb_;
+  targetW_ = savedW_;
+  targetH_ = savedH_;
+  targetPushed_ = false;
+  clearClip();
 }
 
 void Display::useFontSmall() { setFont(&GoogleSans_Regular9pt7b); }
@@ -80,16 +98,16 @@ void Display::useFontDefault() { setFont(nullptr); }
 
 void Display::clear(uint16_t color) {
   if (!fb_) return;
+  const size_t n = (size_t)targetW_ * (size_t)targetH_;
   if (color == 0) {
-    memset(fb_, 0, bufferBytes());
+    memset(fb_, 0, n * sizeof(uint16_t));
     return;
   }
-  const size_t n = (size_t)panel_.width * (size_t)panel_.height;
   for (size_t i = 0; i < n; i++) fb_[i] = color;
 }
 
 void Display::setClip(int16_t x, int16_t y, int16_t w, int16_t h) {
-  clipToPanel(x, y, w, h);
+  clipToTarget(x, y, w, h);
   clipX_ = x;
   clipY_ = y;
   clipW_ = w;
@@ -101,8 +119,8 @@ void Display::clearClip() {
   clipEnabled_ = false;
   clipX_ = 0;
   clipY_ = 0;
-  clipW_ = panel_.width;
-  clipH_ = panel_.height;
+  clipW_ = targetW_;
+  clipH_ = targetH_;
 }
 
 bool Display::inClip(int16_t x, int16_t y) const {
@@ -110,7 +128,7 @@ bool Display::inClip(int16_t x, int16_t y) const {
   return x >= clipX_ && y >= clipY_ && x < clipX_ + clipW_ && y < clipY_ + clipH_;
 }
 
-void Display::clipToPanel(int16_t &x, int16_t &y, int16_t &w, int16_t &h) const {
+void Display::clipToTarget(int16_t &x, int16_t &y, int16_t &w, int16_t &h) const {
   if (x < 0) {
     w += x;
     x = 0;
@@ -119,14 +137,14 @@ void Display::clipToPanel(int16_t &x, int16_t &y, int16_t &w, int16_t &h) const 
     h += y;
     y = 0;
   }
-  if (x + w > panel_.width) w = panel_.width - x;
-  if (y + h > panel_.height) h = panel_.height - y;
+  if (x + w > targetW_) w = targetW_ - x;
+  if (y + h > targetH_) h = targetH_ - y;
   if (w < 0) w = 0;
   if (h < 0) h = 0;
 }
 
 void Display::clipToDraw(int16_t &x, int16_t &y, int16_t &w, int16_t &h) const {
-  clipToPanel(x, y, w, h);
+  clipToTarget(x, y, w, h);
   if (!clipEnabled_) return;
   if (x < clipX_) {
     w -= (clipX_ - x);
@@ -145,117 +163,97 @@ void Display::clipToDraw(int16_t &x, int16_t &y, int16_t &w, int16_t &h) const {
 void Display::present() { present(0, 0, panel_.width, panel_.height); }
 
 void Display::present(int16_t x, int16_t y, int16_t w, int16_t h) {
-  if (!fb_ || !tft_ || w <= 0 || h <= 0) return;
-  clipToPanel(x, y, w, h);
+  if (!fbPanel_ || !tft_ || w <= 0 || h <= 0) return;
+
+  if (x < 0) {
+    w += x;
+    x = 0;
+  }
+  if (y < 0) {
+    h += y;
+    y = 0;
+  }
+  if (x + w > panel_.width) w = panel_.width - x;
+  if (y + h > panel_.height) h = panel_.height - y;
   if (w <= 0 || h <= 0) return;
 
-  if (panel_.needsDownscale()) {
-    presentDownscaled(x, y, w, h);
-  } else {
-    presentDirect(x, y, w, h);
-  }
-}
-
-void Display::presentDirect(int16_t x, int16_t y, int16_t w, int16_t h) {
   tft_->startWrite();
   if (x == 0 && w == panel_.width) {
     tft_->setAddrWindow(0, panel_.panelYOffset + y, (uint16_t)w, (uint16_t)h);
-    tft_->writePixels(fb_ + (int32_t)y * panel_.width, (uint32_t)w * h);
+    tft_->writePixels(fbPanel_ + (int32_t)y * panel_.width, (uint32_t)w * h);
   } else {
     for (int16_t row = 0; row < h; row++) {
       tft_->setAddrWindow(x, panel_.panelYOffset + y + row, (uint16_t)w, 1);
-      tft_->writePixels(fb_ + (int32_t)(y + row) * panel_.width + x,
+      tft_->writePixels(fbPanel_ + (int32_t)(y + row) * panel_.width + x,
                         (uint32_t)w);
     }
   }
   tft_->endWrite();
 }
 
-void Display::presentDownscaled(int16_t x, int16_t y, int16_t w, int16_t h) {
-  if (!presentLine_) return;
+void Display::presentBuffer(const uint16_t *src, int16_t x, int16_t y, int16_t w,
+                            int16_t h) {
+  // src is tightly packed (stride == w).
+  if (!src || !tft_ || w <= 0 || h <= 0) return;
 
-  const int16_t sx = panel_.scaleX();
-  const int16_t sy = panel_.scaleY();
-  if (sx < 1 || sy < 1) return;
-  if (panel_.width != panel_.nativeWidth * sx ||
-      panel_.height != panel_.nativeHeight * sy) {
-    // Non-integer scale not supported yet — fall back to full-frame integer path
-    // only when dimensions divide evenly (Panel18).
-    return;
+  if (x < 0) {
+    src -= x;
+    w += x;
+    x = 0;
   }
-
-  // Expand dirty rect to whole source blocks.
-  const int16_t x0 = (x / sx) * sx;
-  const int16_t y0 = (y / sy) * sy;
-  const int16_t x1 = ((x + w + sx - 1) / sx) * sx;
-  const int16_t y1 = ((y + h + sy - 1) / sy) * sy;
-
-  const int16_t nx = x0 / sx;
-  const int16_t ny = y0 / sy;
-  const int16_t nw = (x1 - x0) / sx;
-  const int16_t nh = (y1 - y0) / sy;
-  if (nw <= 0 || nh <= 0) return;
-
-  const int32_t samples = (int32_t)sx * (int32_t)sy;
-  const int16_t fbW = panel_.width;
+  if (y < 0) {
+    h += y;
+    y = 0;
+  }
+  if (x + w > panel_.width) w = panel_.width - x;
+  if (y + h > panel_.height) h = panel_.height - y;
+  if (w <= 0 || h <= 0) return;
 
   tft_->startWrite();
-  for (int16_t row = 0; row < nh; row++) {
-    const int16_t srcY0 = y0 + row * sy;
-    for (int16_t col = 0; col < nw; col++) {
-      const int16_t srcX0 = x0 + col * sx;
-      uint32_t rSum = 0, gSum = 0, bSum = 0;
-      for (int16_t dy = 0; dy < sy; dy++) {
-        const uint16_t *src =
-            fb_ + (int32_t)(srcY0 + dy) * fbW + srcX0;
-        for (int16_t dx = 0; dx < sx; dx++) {
-          const uint16_t c = src[dx];
-          rSum += (c >> 11) & 0x1F;
-          gSum += (c >> 5) & 0x3F;
-          bSum += c & 0x1F;
-        }
-      }
-      presentLine_[col] = (uint16_t)(((rSum / samples) << 11) |
-                                     ((gSum / samples) << 5) |
-                                     (bSum / samples));
+  if (x == 0 && w == panel_.width) {
+    tft_->setAddrWindow(0, panel_.panelYOffset + y, (uint16_t)w, (uint16_t)h);
+    tft_->writePixels(const_cast<uint16_t *>(src), (uint32_t)w * h);
+  } else {
+    for (int16_t row = 0; row < h; row++) {
+      tft_->setAddrWindow(x, panel_.panelYOffset + y + row, (uint16_t)w, 1);
+      tft_->writePixels(const_cast<uint16_t *>(src + (int32_t)row * w),
+                        (uint32_t)w);
     }
-    tft_->setAddrWindow(nx, panel_.panelYOffset + ny + row, (uint16_t)nw, 1);
-    tft_->writePixels(presentLine_, (uint32_t)nw);
   }
   tft_->endWrite();
 }
 
 void Display::drawPixel(int16_t x, int16_t y, uint16_t color) {
-  if (!fb_ || x < 0 || y < 0 || x >= panel_.width || y >= panel_.height) return;
+  if (!fb_ || x < 0 || y < 0 || x >= targetW_ || y >= targetH_) return;
   if (!inClip(x, y)) return;
-  fb_[(int32_t)y * panel_.width + x] = color;
+  fb_[(int32_t)y * targetW_ + x] = color;
 }
 
 uint16_t Display::getPixel(int16_t x, int16_t y) const {
-  if (!fb_ || x < 0 || y < 0 || x >= panel_.width || y >= panel_.height) return 0;
-  return fb_[(int32_t)y * panel_.width + x];
+  if (!fb_ || x < 0 || y < 0 || x >= targetW_ || y >= targetH_) return 0;
+  return fb_[(int32_t)y * targetW_ + x];
 }
 
 void Display::blendPixel(int16_t x, int16_t y, uint16_t fg, uint8_t cover4) {
   if (!fb_ || cover4 == 0) return;
-  if (x < 0 || y < 0 || x >= panel_.width || y >= panel_.height) return;
+  if (x < 0 || y < 0 || x >= targetW_ || y >= targetH_) return;
   if (!inClip(x, y)) return;
   if (cover4 >= 15) {
-    fb_[(int32_t)y * panel_.width + x] = fg;
+    fb_[(int32_t)y * targetW_ + x] = fg;
     return;
   }
-  uint16_t *p = &fb_[(int32_t)y * panel_.width + x];
+  uint16_t *p = &fb_[(int32_t)y * targetW_ + x];
   *p = AAFontDraw::blend565(fg, *p, cover4);
 }
 
 void Display::drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color) {
-  if (!fb_ || y < 0 || y >= panel_.height) return;
+  if (!fb_ || y < 0 || y >= targetH_) return;
   if (clipEnabled_ && (y < clipY_ || y >= clipY_ + clipH_)) return;
   if (x < 0) {
     w += x;
     x = 0;
   }
-  if (x + w > panel_.width) w = panel_.width - x;
+  if (x + w > targetW_) w = targetW_ - x;
   if (clipEnabled_) {
     if (x < clipX_) {
       w -= (clipX_ - x);
@@ -264,18 +262,18 @@ void Display::drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color) {
     if (x + w > clipX_ + clipW_) w = clipX_ + clipW_ - x;
   }
   if (w <= 0) return;
-  uint16_t *row = fb_ + (int32_t)y * panel_.width + x;
+  uint16_t *row = fb_ + (int32_t)y * targetW_ + x;
   for (int16_t i = 0; i < w; i++) row[i] = color;
 }
 
 void Display::drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) {
-  if (!fb_ || x < 0 || x >= panel_.width) return;
+  if (!fb_ || x < 0 || x >= targetW_) return;
   if (clipEnabled_ && (x < clipX_ || x >= clipX_ + clipW_)) return;
   if (y < 0) {
     h += y;
     y = 0;
   }
-  if (y + h > panel_.height) h = panel_.height - y;
+  if (y + h > targetH_) h = targetH_ - y;
   if (clipEnabled_) {
     if (y < clipY_) {
       h -= (clipY_ - y);
@@ -285,7 +283,7 @@ void Display::drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) {
   }
   if (h <= 0) return;
   for (int16_t i = 0; i < h; i++) {
-    fb_[(int32_t)(y + i) * panel_.width + x] = color;
+    fb_[(int32_t)(y + i) * targetW_ + x] = color;
   }
 }
 
@@ -298,31 +296,218 @@ void Display::fillRect(int16_t x, int16_t y, int16_t w, int16_t h,
   }
 }
 
+namespace {
+
+inline uint8_t coverFromSd(float sd) {
+  // sd <= -0.5 → opaque, sd >= +0.5 → transparent
+  const float c = 0.5f - sd;
+  if (c <= 0.f) return 0;
+  if (c >= 1.f) return 15;
+  return static_cast<uint8_t>(c * 15.f + 0.5f);
+}
+
+inline float clampf01(float v) {
+  if (v <= 0.f) return 0.f;
+  if (v >= 1.f) return 1.f;
+  return v;
+}
+
+inline int16_t clampRadius(int16_t w, int16_t h, int16_t r) {
+  if (r < 0) r = 0;
+  if (r * 2 > w) r = w / 2;
+  if (r * 2 > h) r = h / 2;
+  return r;
+}
+
+} // namespace
+
+void Display::fillRoundRect(int16_t x, int16_t y, int16_t w, int16_t h,
+                            int16_t r, uint16_t color) {
+  if (!fb_ || w <= 0 || h <= 0) return;
+  r = clampRadius(w, h, r);
+  if (r <= 0) {
+    fillRect(x, y, w, h, color);
+    return;
+  }
+
+  // Solid body — AA only needed in the four corner quarters.
+  if (h > 2 * r) {
+    fillRect(x, static_cast<int16_t>(y + r), w, static_cast<int16_t>(h - 2 * r),
+             color);
+  }
+  if (w > 2 * r) {
+    fillRect(static_cast<int16_t>(x + r), y, static_cast<int16_t>(w - 2 * r), r,
+             color);
+    fillRect(static_cast<int16_t>(x + r), static_cast<int16_t>(y + h - r),
+             static_cast<int16_t>(w - 2 * r), r, color);
+  }
+
+  const float rf = static_cast<float>(r);
+  auto paintCorner = [&](int16_t x0, int16_t y0, float cx, float cy) {
+    for (int16_t j = 0; j < r; j++) {
+      for (int16_t i = 0; i < r; i++) {
+        const float dx = (x0 + i + 0.5f) - cx;
+        const float dy = (y0 + j + 0.5f) - cy;
+        const float sd = sqrtf(dx * dx + dy * dy) - rf;
+        const uint8_t cover = coverFromSd(sd);
+        if (cover == 0) continue;
+        blendPixel(static_cast<int16_t>(x0 + i), static_cast<int16_t>(y0 + j),
+                   color, cover);
+      }
+    }
+  };
+
+  paintCorner(x, y, x + rf, y + rf);                                         // TL
+  paintCorner(static_cast<int16_t>(x + w - r), y, x + w - rf, y + rf);       // TR
+  paintCorner(x, static_cast<int16_t>(y + h - r), x + rf, y + h - rf);       // BL
+  paintCorner(static_cast<int16_t>(x + w - r), static_cast<int16_t>(y + h - r),
+              x + w - rf, y + h - rf);                                       // BR
+}
+
+void Display::strokeRoundRect(int16_t x, int16_t y, int16_t w, int16_t h,
+                              int16_t r, uint8_t strokeW, uint16_t color,
+                              bool outside) {
+  if (!fb_ || w <= 0 || h <= 0 || strokeW == 0) return;
+  r = clampRadius(w, h, r);
+  const int16_t sw = static_cast<int16_t>(strokeW);
+
+  if (r <= 0) {
+    // Sharp rect — solid stroke rings (edges are axis-aligned).
+    for (int16_t i = 0; i < sw; i++) {
+      int16_t rx, ry, rw, rh;
+      if (outside) {
+        rx = static_cast<int16_t>(x - (i + 1));
+        ry = static_cast<int16_t>(y - (i + 1));
+        rw = static_cast<int16_t>(w + 2 * (i + 1));
+        rh = static_cast<int16_t>(h + 2 * (i + 1));
+      } else {
+        rx = static_cast<int16_t>(x + i);
+        ry = static_cast<int16_t>(y + i);
+        rw = static_cast<int16_t>(w - 2 * i);
+        rh = static_cast<int16_t>(h - 2 * i);
+        if (rw <= 0 || rh <= 0) break;
+      }
+      drawFastHLine(rx, ry, rw, color);
+      drawFastHLine(rx, static_cast<int16_t>(ry + rh - 1), rw, color);
+      if (rh > 2) {
+        drawFastVLine(rx, static_cast<int16_t>(ry + 1),
+                      static_cast<int16_t>(rh - 2), color);
+        drawFastVLine(static_cast<int16_t>(rx + rw - 1),
+                      static_cast<int16_t>(ry + 1),
+                      static_cast<int16_t>(rh - 2), color);
+      }
+    }
+    return;
+  }
+
+  const float rf = static_cast<float>(r);
+  const float swf = static_cast<float>(sw);
+  const float outerR = outside ? (rf + swf) : rf;
+  const float innerR = outside ? rf : (rf - swf);
+  const int16_t scan = outside ? static_cast<int16_t>(r + sw) : r;
+
+  // Straight edge bands (integer-aligned — no AA needed).
+  const int16_t midW = static_cast<int16_t>(w - 2 * r);
+  const int16_t midH = static_cast<int16_t>(h - 2 * r);
+  if (midW > 0) {
+    if (outside) {
+      fillRect(static_cast<int16_t>(x + r), static_cast<int16_t>(y - sw), midW,
+               sw, color);
+      fillRect(static_cast<int16_t>(x + r), static_cast<int16_t>(y + h), midW, sw,
+               color);
+    } else {
+      fillRect(static_cast<int16_t>(x + r), y, midW, sw, color);
+      fillRect(static_cast<int16_t>(x + r), static_cast<int16_t>(y + h - sw),
+               midW, sw, color);
+    }
+  }
+  if (midH > 0) {
+    if (outside) {
+      fillRect(static_cast<int16_t>(x - sw), static_cast<int16_t>(y + r), sw,
+               midH, color);
+      fillRect(static_cast<int16_t>(x + w), static_cast<int16_t>(y + r), sw,
+               midH, color);
+    } else {
+      fillRect(x, static_cast<int16_t>(y + r), sw, midH, color);
+      fillRect(static_cast<int16_t>(x + w - sw), static_cast<int16_t>(y + r), sw,
+               midH, color);
+    }
+  }
+
+  auto paintCornerStroke = [&](int16_t x0, int16_t y0, float cx, float cy) {
+    for (int16_t j = 0; j < scan; j++) {
+      for (int16_t i = 0; i < scan; i++) {
+        const float dx = (x0 + i + 0.5f) - cx;
+        const float dy = (y0 + j + 0.5f) - cy;
+        const float dist = sqrtf(dx * dx + dy * dy);
+        float a;
+        if (outside) {
+          a = clampf01(0.5f - (dist - outerR)) -
+              clampf01(0.5f - (dist - innerR));
+        } else if (innerR > 0.f) {
+          a = clampf01(0.5f - (dist - outerR)) -
+              clampf01(0.5f - (dist - innerR));
+        } else {
+          // Stroke eats the whole corner disc.
+          a = clampf01(0.5f - (dist - outerR));
+        }
+        if (a <= 0.f) continue;
+        const uint8_t cover =
+            a >= 1.f ? 15 : static_cast<uint8_t>(a * 15.f + 0.5f);
+        blendPixel(static_cast<int16_t>(x0 + i), static_cast<int16_t>(y0 + j),
+                   color, cover);
+      }
+    }
+  };
+
+  if (outside) {
+    paintCornerStroke(static_cast<int16_t>(x - sw), static_cast<int16_t>(y - sw),
+                      x + rf, y + rf);
+    paintCornerStroke(static_cast<int16_t>(x + w - r),
+                      static_cast<int16_t>(y - sw), x + w - rf, y + rf);
+    paintCornerStroke(static_cast<int16_t>(x - sw),
+                      static_cast<int16_t>(y + h - r), x + rf, y + h - rf);
+    paintCornerStroke(static_cast<int16_t>(x + w - r),
+                      static_cast<int16_t>(y + h - r), x + w - rf, y + h - rf);
+  } else {
+    paintCornerStroke(x, y, x + rf, y + rf);
+    paintCornerStroke(static_cast<int16_t>(x + w - r), y, x + w - rf, y + rf);
+    paintCornerStroke(x, static_cast<int16_t>(y + h - r), x + rf, y + h - rf);
+    paintCornerStroke(static_cast<int16_t>(x + w - r),
+                      static_cast<int16_t>(y + h - r), x + w - rf, y + h - rf);
+  }
+}
+
+void Display::drawRoundRect(int16_t x, int16_t y, int16_t w, int16_t h,
+                            int16_t r, uint16_t color) {
+  strokeRoundRect(x, y, w, h, r, 1, color, /*outside=*/false);
+}
+
 void Display::drawRGBBitmap(int16_t x, int16_t y, const uint16_t *bitmap,
                             int16_t w, int16_t h) {
   if (!fb_ || !bitmap) return;
   for (int16_t j = 0; j < h; j++) {
     int16_t dy = y + j;
-    if (dy < 0 || dy >= panel_.height) continue;
+    if (dy < 0 || dy >= targetH_) continue;
     if (clipEnabled_ && (dy < clipY_ || dy >= clipY_ + clipH_)) continue;
     for (int16_t i = 0; i < w; i++) {
       int16_t dx = x + i;
-      if (dx < 0 || dx >= panel_.width) continue;
+      if (dx < 0 || dx >= targetW_) continue;
       if (!inClip(dx, dy)) continue;
-      fb_[(int32_t)dy * panel_.width + dx] = bitmap[(int32_t)j * w + i];
+      fb_[(int32_t)dy * targetW_ + dx] = bitmap[(int32_t)j * w + i];
     }
   }
 }
 
 void Display::blitHLine(int16_t x, int16_t y, const uint16_t *src, int16_t w) {
-  if (!fb_ || !src || y < 0 || y >= panel_.height) return;
+  if (!fb_ || !src || y < 0 || y >= targetH_) return;
   if (clipEnabled_ && (y < clipY_ || y >= clipY_ + clipH_)) return;
   if (x < 0) {
     w += x;
     src -= x;
     x = 0;
   }
-  if (x + w > panel_.width) w = panel_.width - x;
+  if (x + w > targetW_) w = targetW_ - x;
   if (clipEnabled_) {
     if (x < clipX_) {
       const int16_t skip = clipX_ - x;
@@ -333,7 +518,7 @@ void Display::blitHLine(int16_t x, int16_t y, const uint16_t *src, int16_t w) {
     if (x + w > clipX_ + clipW_) w = clipX_ + clipW_ - x;
   }
   if (w <= 0) return;
-  memcpy(fb_ + (int32_t)y * panel_.width + x, src, (size_t)w * sizeof(uint16_t));
+  memcpy(fb_ + (int32_t)y * targetW_ + x, src, (size_t)w * sizeof(uint16_t));
 }
 
 bool Display::insideRound(int16_t x, int16_t y) const {
@@ -370,12 +555,12 @@ bool Display::insideRound(int16_t x, int16_t y, int16_t r) const {
 void Display::drawPanelRoundRect(uint16_t color) {
   const int16_t r = panel_.cornerRadius;
   if (r <= 0) {
-    drawRect(0, 0, panel_.width, panel_.height, color);
+    strokeRoundRect(0, 0, panel_.width, panel_.height, 0, 2, color,
+                    /*outside=*/false);
     return;
   }
-  drawRoundRect(0, 0, panel_.width, panel_.height, r, color);
-  drawRoundRect(1, 1, panel_.width - 2, panel_.height - 2, r > 1 ? r - 1 : 1,
-                color);
+  strokeRoundRect(0, 0, panel_.width, panel_.height, r, 2, color,
+                  /*outside=*/false);
 }
 
 void Display::fillPanelRoundRect(uint16_t color) {

@@ -34,11 +34,22 @@ public:
   ButtonColor color() const { return color_; }
   ButtonVariant variant() const { return variant_; }
 
+  /**
+   * Disabled: not focusable, ignores press, chrome at ~50% opacity over
+   * `disabledBackdrop` (defaults to Theme::surface()).
+   */
+  UIButton &disabled(bool v);
+  bool disabled() const { return disabled_; }
+  UIButton &disabledBackdrop(uint16_t color);
+
   /** Label color resolved from color/variant (for child UIText). */
   uint16_t labelColor() const { return labelColor_; }
 
+  bool visualAnimating() const override;
+
 protected:
   void paintSelf(Canvas &canvas) override;
+  void tickSelf(float dt) override;
   bool handleEvent(UIEvent &e) override;
 
 private:
@@ -46,7 +57,14 @@ private:
   ButtonVariant variant_ = ButtonVariant::Solid;
   uint16_t labelColor_ = 0xFFFF;
   PressFn onPress_ = nullptr;
+  bool disabled_ = false;
+  uint16_t disabledBackdrop_ = 0;
+
+  /** 1 → just tapped; eases to 0. Drives dip + dim. */
+  float press_ = 0;
 
   void applyChrome();
   void syncLabelColors();
+  void syncPressVisual();
+  void triggerPressAnim();
 };

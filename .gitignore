@@ -28,6 +28,8 @@ __pycache__/
 .venv/
 venv/
 .env
+tools/.emoji_cache/
+tools/fonts/
 
 # Secrets / local env
 .env.*

@@ -70,6 +70,8 @@ public:
   const Rect &borderBox() const { return borderBox_; }
 
   void tick(float dt);
+  /** True while this node has a transient draw animation (press, etc.). */
+  virtual bool visualAnimating() const { return false; }
   void layout(int16_t x, int16_t y, int16_t availW);
   void draw(Canvas &canvas);
 
@@ -78,6 +80,11 @@ public:
    * @return true if handled somewhere in the chain.
    */
   bool dispatch(UIEvent &e);
+
+  /** Set during layout/measure so nodes resolve design px via Canvas::uiScale. */
+  static void setLayoutHost(Canvas *c);
+  static Canvas *layoutHost() { return layoutHost_; }
+  static float layoutScale() { return layoutScale_; }
 
 protected:
   Style style_{};
@@ -96,10 +103,16 @@ protected:
 
   virtual void layoutSelf(int16_t x, int16_t y, int16_t availW) = 0;
   virtual void paintSelf(Canvas &canvas) = 0;
+  /** Per-frame motion before onTick_ / children. */
+  virtual void tickSelf(float dt);
   /** Subclass default handling (after onEvent_). Return true to stop bubble. */
   virtual bool handleEvent(UIEvent &e);
 
   Rect paintBox() const;
 
   friend class Page;
+
+private:
+  static Canvas *layoutHost_;
+  static float layoutScale_;
 };

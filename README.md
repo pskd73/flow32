@@ -7,8 +7,9 @@ canvas, composable UI, focus/scroll, and pluggable input.
 
 | Path | Role |
 |------|------|
-| `lib/Flow32/` | **Library** (reusable in other PlatformIO projects) |
-| `src/main.cpp` | **Driver / demo** firmware for on-device testing |
+| `lib/Flow32/` | **Library** (reusable — no board-specific panels or demos) |
+| `src/panels.h` | App panel profiles (`Panel18`, `Panel183`, …) |
+| `src/main.cpp` | Demo firmware for on-device testing |
 
 ## Use as a library
 
@@ -25,9 +26,11 @@ build_flags =
 ```cpp
 #include <Flow32.h>
 
-Display display(Panel183());
+// Define your own DisplayPanel (or copy src/panels.h).
+DisplayPanel panel = /* ... */;
+Display display(panel);
 Canvas canvas(display);
-Page page(Rect(0, 0, display.panel().width, display.panel().height));
+Page page(Rect(0, 0, panel.width, panel.height));
 ```
 
 ## Demo (this repo)
@@ -39,7 +42,7 @@ python3 -m platformio device monitor
 
 Serial: `u/d/l/r` move/scroll, `e` focus/activate, `b` back.
 
-Switch panel in `src/main.cpp`: `Panel18()` or `Panel183()`.
+Switch panel in `src/main.cpp`: `Panel18()` or `Panel183()` from `src/panels.h`.
 
 ## Wiring (default pins)
 

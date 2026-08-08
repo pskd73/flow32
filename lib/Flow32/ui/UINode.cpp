@@ -2,6 +2,14 @@
 #include "UIDebug.h"
 #include "../Canvas.h"
 
+Canvas *UINode::layoutHost_ = nullptr;
+float UINode::layoutScale_ = 1.0f;
+
+void UINode::setLayoutHost(Canvas *c) {
+  layoutHost_ = c;
+  layoutScale_ = c ? c->uiScale() : 1.0f;
+}
+
 UINode &UINode::add(UINode &child) {
   if (!canHaveChildren_) return *this;
   if (childCount_ >= kMaxChildren) return *this;
@@ -19,7 +27,10 @@ void UINode::collectHighlightable(UINode **out, uint8_t &count, uint8_t max) {
   }
 }
 
+void UINode::tickSelf(float /*dt*/) {}
+
 void UINode::tick(float dt) {
+  tickSelf(dt);
   if (onTick_) onTick_(*this, dt);
   for (uint8_t i = 0; i < childCount_; i++) {
     children_[i]->tick(dt);
@@ -55,6 +66,7 @@ void UINode::draw(Canvas &canvas) {
   canvas.setOrigin(static_cast<int16_t>(ox + (int16_t)anim_.x),
                    static_cast<int16_t>(oy + (int16_t)anim_.y));
 
+  // Pass design-px radius/widths — Canvas scales them at draw time.
   if (style_.hasBackground) {
     if (style_.radius > 0) {
       canvas.fillRoundRect(borderBox_, style_.radius, style_.background);
@@ -80,6 +92,7 @@ void UINode::draw(Canvas &canvas) {
   }
 
   if (UIDebug::borders) {
+    // Hairline in physical px: width 1 with scale still yields ≥1.
     canvas.drawOutline(borderBox_, 1, UIDebug::borderColor, /*outside=*/false,
                        /*radius=*/0);
   }

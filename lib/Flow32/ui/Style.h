@@ -1,7 +1,27 @@
 #pragma once
 
 #include <Arduino.h>
+#include <math.h>
 #include "Rect.h"
+
+/** Scale design px by uiScale. Positive values keep at least 1px when scaled. */
+inline int16_t scalePx(int16_t v, float s) {
+  if (v == 0 || s == 1.0f) return v;
+  const int32_t out = (int32_t)lroundf((float)v * s);
+  if (v > 0 && out < 1) return 1;
+  if (v < 0 && out > -1) return -1;
+  if (out > 32767) return 32767;
+  if (out < -32768) return -32768;
+  return static_cast<int16_t>(out);
+}
+
+inline uint8_t scaleU8(uint8_t v, float s) {
+  if (v == 0 || s == 1.0f) return v;
+  const int32_t out = (int32_t)lroundf((float)v * s);
+  if (out < 1) return 1;
+  if (out > 255) return 255;
+  return static_cast<uint8_t>(out);
+}
 
 enum class FontRole : uint8_t {
   Small,
@@ -43,10 +63,10 @@ struct Length {
     return l;
   }
 
-  int16_t resolve(int16_t parent) const {
+  int16_t resolve(int16_t parent, float scale = 1.0f) const {
     switch (unit) {
     case Unit::Px:
-      return value;
+      return scalePx(value, scale);
     case Unit::Percent:
       return static_cast<int16_t>((static_cast<int32_t>(parent) * value) / 100);
     case Unit::Auto:
@@ -69,6 +89,11 @@ struct Edges {
       : top(t), right(r), bottom(b), left(l) {}
 };
 
+inline Edges scaleEdges(const Edges &e, float s) {
+  return Edges(scalePx(e.top, s), scalePx(e.right, s), scalePx(e.bottom, s),
+               scalePx(e.left, s));
+}
+
 /** CSS-inspired style for UI nodes. */
 class Style {
 public:
@@ -86,7 +111,19 @@ public:
   FontRole font = FontRole::Body;
   Align align = Align::Start;
   ImageFit objectFit = ImageFit::Cover;
+  /**
+   * Absolute line box height in design px (0 = normal).
+   * When 0, stride is font metrics + lineGap. When set, stride is lineHeight
+   * (lineGap ignored) — controls space between wrapped lines.
+   */
+  uint8_t lineHeight = 0;
+  /** Extra leading when lineHeight is 0 (design px). */
   uint8_t lineGap = 4;
+  /**
+   * Emoji raster size in design px (0 = derive from font).
+   * Values above the atlas baked size upscale.
+   */
+  uint8_t emojiSize = 0;
   uint16_t outlineColor = 0xFFFF; // focus ring
   uint8_t outlineWidth = 2;
   bool outlineOutside = true;
@@ -155,8 +192,16 @@ public:
     objectFit = v;
     return *this;
   }
+  Style &setLineHeight(uint8_t v) {
+    lineHeight = v;
+    return *this;
+  }
   Style &setLineGap(uint8_t v) {
     lineGap = v;
+    return *this;
+  }
+  Style &setEmojiSize(uint8_t v) {
+    emojiSize = v;
     return *this;
   }
   Style &setOutlineColor(uint16_t v) {

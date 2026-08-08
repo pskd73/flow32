@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AAFont.h"
+#include "ColorEmoji.h"
 #include "Display.h"
 #include "Rect.h"
 #include "ui/Style.h"
@@ -15,8 +16,15 @@ class UIImage;
 struct TextStyle {
   FontRole font = FontRole::Body;
   uint16_t color = 0xFFFF;
+  /** Absolute line box height in design px (0 = font + lineGap). */
+  uint8_t lineHeight = 0;
   uint8_t lineGap = 4;
   uint8_t paragraphGap = 8;
+  /**
+   * Force emoji draw size in design px (0 = match font line height).
+   * May exceed atlas bakedSize (upscales; softer).
+   */
+  uint8_t emojiSize = 0;
   Align align = Align::Start;
 };
 
@@ -48,6 +56,18 @@ public:
   Display &display() { return display_; }
   const Display &display() const { return display_; }
 
+  /** Panel UI density. Style px are design units; Canvas converts at draw/layout. */
+  float uiScale() const { return display_.panel().uiScale; }
+  int16_t sx(int16_t px) const { return scalePx(px, uiScale()); }
+  uint8_t su8(uint8_t px) const { return scaleU8(px, uiScale()); }
+  Edges scaledPad(const Edges &pad) const { return scaleEdges(pad, uiScale()); }
+  int16_t resolveLen(const Length &len, int16_t parent) const {
+    return len.resolve(parent, uiScale());
+  }
+  Rect contentBox(const Rect &border, const Edges &designPad) const {
+    return contentRect(border, scaledPad(designPad));
+  }
+
   void clear(uint16_t color = 0);
   void present();
   void present(const Rect &r);
@@ -69,6 +89,10 @@ public:
   void newLine(int16_t extra = 0);
   void gap(int16_t dy);
 
+  /** Color emoji atlas in flash (default null = no emoji). */
+  void setEmojiAtlas(const ColorEmojiAtlas *atlas) { emojiAtlas_ = atlas; }
+  const ColorEmojiAtlas *emojiAtlas() const { return emojiAtlas_; }
+
   DrawResult drawText(const char *text, const TextStyle &style,
                       bool advance = true);
   DrawResult drawText(const Rect &box, const char *text, const TextStyle &style,
@@ -86,7 +110,9 @@ public:
                        bool advance = false);
 
   void fillRect(const Rect &box, uint16_t color);
+  /** radius is design px — scaled by uiScale before rasterizing. */
   void fillRoundRect(const Rect &box, int16_t radius, uint16_t color);
+  /** width/radius are design px — scaled by uiScale before rasterizing. */
   void drawOutline(const Rect &box, uint8_t width, uint16_t color,
                    bool outside = true, int16_t radius = 0);
 
@@ -113,6 +139,8 @@ private:
   int16_t originY_ = 0;
   int16_t lastLineH_ = 0;
   const AAFont *aaFont_ = nullptr;
+  const ColorEmojiAtlas *emojiAtlas_ = nullptr;
+  int16_t emojiDrawPx_ = 0;
 
   UIArena arena_{};
   UINode *roots_[kMaxRoots] = {};
@@ -122,7 +150,11 @@ private:
   int16_t fontLineHeight() const;
   int16_t fontBaseline() const;
   int16_t measureCharWidth(char c) const;
-  int16_t measureTextWidth(const char *text, size_t len) const;
+  int16_t measureCodeWidth(uint32_t cp) const;
+  int16_t measureUtf8Width(const char *start, const char *end) const;
+  void syncEmojiDrawSize(uint8_t overridePx = 0);
+  void drawUtf8Span(int16_t baselineScreenX, int16_t baselineScreenY,
+                    const char *start, const char *end, uint16_t color);
 
   DrawResult drawTextInBox(int16_t boxX, int16_t boxY, int16_t boxW,
                            int16_t boxH, const char *text,

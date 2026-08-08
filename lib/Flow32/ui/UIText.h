@@ -26,11 +26,4 @@ protected:
 
 private:
   const char *text_ = "";
-  // Canvas pointer set during layout/paint via thread-local-ish: we need Canvas
-  // for measure. Pass through static during layout tree from host.
-public:
-  static void setLayoutCanvas(Canvas *c) { layoutCanvas_ = c; }
-
-private:
-  static Canvas *layoutCanvas_;
 };

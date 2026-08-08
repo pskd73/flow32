@@ -49,30 +49,91 @@ void Canvas::resetFlow() {
 
 void Canvas::newLine(int16_t extra) {
   cx_ = bounds_.x;
-  cy_ = static_cast<int16_t>(cy_ + lastLineH_ + extra);
+  cy_ = static_cast<int16_t>(cy_ + lastLineH_ + sx(extra));
 }
 
-void Canvas::gap(int16_t dy) { cy_ = static_cast<int16_t>(cy_ + dy); }
+void Canvas::gap(int16_t dy) { cy_ = static_cast<int16_t>(cy_ + sx(dy)); }
 
 void Canvas::applyFont(FontRole role) {
   aaFont_ = nullptr;
-  switch (role) {
-  case FontRole::Small:
-    aaFont_ = &GoogleSans16aa;
+  const float s = uiScale();
+  if (s < 0.05f) {
+    display_.useFontDefault();
+    return;
+  }
+
+  // AA GoogleSans roles: pick nearest baked size — never stretch bitmaps.
+  // Below the smallest AA face (~16), fall back to GFX 9pt / default so
+  // uiScale < ~0.5 still shrinks type (spacing already scales continuously).
+  const bool aaRole = role == FontRole::Small || role == FontRole::Body ||
+                      role == FontRole::BodyBold || role == FontRole::BodyLarge;
+  if (aaRole) {
+    int16_t design = 22;
+    bool wantBold = false;
+    switch (role) {
+    case FontRole::Small:
+      design = 16;
+      break;
+    case FontRole::Body:
+      design = 22;
+      break;
+    case FontRole::BodyBold:
+      design = 22;
+      wantBold = true;
+      break;
+    case FontRole::BodyLarge:
+      design = 34;
+      break;
+    default:
+      break;
+    }
+    const int16_t target = scalePx(design, s);
+
+    if (target < 10) {
+      display_.useFontDefault();
+      return;
+    }
+    if (target < 14) {
+      display_.useFontSmall(); // GFX 9pt, no AA
+      return;
+    }
+
+    auto dist = [](int16_t a, int16_t b) -> int16_t {
+      return a > b ? static_cast<int16_t>(a - b) : static_cast<int16_t>(b - a);
+    };
+    const int16_t d16 = dist(target, 16);
+    const int16_t d22 = dist(target, 22);
+    const int16_t d34 = dist(target, 34);
+
+    if (d16 <= d22 && d16 <= d34) {
+      aaFont_ = &GoogleSans16aa;
+      display_.useFontSmall();
+    } else if (d34 < d22) {
+      aaFont_ = &GoogleSans34aa;
+      display_.useFontBodyLarge();
+    } else if (wantBold) {
+      aaFont_ = &GoogleSansBold22aa;
+      display_.useFontBodyBold();
+    } else {
+      aaFont_ = &GoogleSans22aa;
+      display_.useFontBody();
+    }
+    return;
+  }
+
+  // GFX decorative fonts: step down a size tier when scale is small.
+  FontRole effective = role;
+  if (s < 0.85f) {
+    if (role == FontRole::PlayfulLarge) effective = FontRole::Playful;
+    else if (role == FontRole::ChildlikeLarge) effective = FontRole::Childlike;
+  }
+  if (s < 0.45f) {
+    // No smaller decorative faces — use compact GFX body.
     display_.useFontSmall();
-    break;
-  case FontRole::Body:
-    aaFont_ = &GoogleSans22aa;
-    display_.useFontBody();
-    break;
-  case FontRole::BodyBold:
-    aaFont_ = &GoogleSansBold22aa;
-    display_.useFontBodyBold();
-    break;
-  case FontRole::BodyLarge:
-    aaFont_ = &GoogleSans34aa;
-    display_.useFontBodyLarge();
-    break;
+    return;
+  }
+
+  switch (effective) {
   case FontRole::Playful:
     display_.useFontPlayful();
     break;
@@ -86,6 +147,7 @@ void Canvas::applyFont(FontRole role) {
     display_.useFontChildlikeLarge();
     break;
   case FontRole::Default:
+  default:
     display_.useFontDefault();
     break;
   }
@@ -121,12 +183,92 @@ int16_t Canvas::measureCharWidth(char c) const {
   return g->xAdvance;
 }
 
-int16_t Canvas::measureTextWidth(const char *text, size_t len) const {
+void Canvas::syncEmojiDrawSize(uint8_t overridePx) {
+  emojiDrawPx_ = 0;
+  if (!emojiAtlas_ || emojiAtlas_->bakedSize == 0) return;
+  int16_t px;
+  if (overridePx > 0) {
+    px = sx(static_cast<int16_t>(overridePx));
+  } else {
+    px = static_cast<int16_t>(fontLineHeight() - 2);
+  }
+  if (px < 1) px = 1;
+  emojiDrawPx_ = px;
+}
+
+int16_t Canvas::measureCodeWidth(uint32_t cp) const {
+  if (emojiAtlas_ && emojiDrawPx_ > 0) {
+    const ColorEmojiGlyph *eg = ColorEmojiDraw::find(*emojiAtlas_, cp);
+    if (eg) {
+      return ColorEmojiDraw::advance(*eg, emojiAtlas_->bakedSize, emojiDrawPx_);
+    }
+  }
+  if (aaFont_) {
+    const uint32_t folded = AAFontDraw::foldCodepoint(cp);
+    if (folded <= 0xFF) {
+      const int16_t w = AAFontDraw::charWidth(*aaFont_, folded);
+      // Contiguous Latin-1 holes (C1) have zero advance — treat as missing.
+      if (w > 0 || folded == static_cast<uint32_t>(' ')) return w;
+    }
+    return AAFontDraw::charWidth(*aaFont_, static_cast<uint32_t>('?'));
+  }
+  if (cp < 0x80) {
+    return measureCharWidth(static_cast<char>(cp));
+  }
+  return measureCharWidth('?');
+}
+
+int16_t Canvas::measureUtf8Width(const char *start, const char *end) const {
   int16_t w = 0;
-  for (size_t i = 0; i < len; i++) {
-    w = static_cast<int16_t>(w + measureCharWidth(text[i]));
+  const char *p = start;
+  while (p < end) {
+    uint32_t cp = 0;
+    const char *before = p;
+    if (!ColorEmojiDraw::nextUtf8(p, cp) || p > end) break;
+    if (before == p) break;
+    w = static_cast<int16_t>(w + measureCodeWidth(cp));
   }
   return w;
+}
+
+void Canvas::drawUtf8Span(int16_t baselineScreenX, int16_t baselineScreenY,
+                          const char *start, const char *end, uint16_t color) {
+  int16_t penX = baselineScreenX;
+  const char *p = start;
+  while (p < end) {
+    uint32_t cp = 0;
+    const char *before = p;
+    if (!ColorEmojiDraw::nextUtf8(p, cp) || p > end) break;
+    if (before == p) break;
+
+    if (emojiAtlas_ && emojiDrawPx_ > 0) {
+      const ColorEmojiGlyph *eg = ColorEmojiDraw::find(*emojiAtlas_, cp);
+      if (eg) {
+        ColorEmojiDraw::draw(display_, *emojiAtlas_, *eg, penX, baselineScreenY,
+                             emojiDrawPx_);
+        penX = static_cast<int16_t>(
+            penX + ColorEmojiDraw::advance(*eg, emojiAtlas_->bakedSize,
+                                           emojiDrawPx_));
+        continue;
+      }
+    }
+
+    if (aaFont_) {
+      const uint32_t folded = AAFontDraw::foldCodepoint(cp);
+      AAFontDraw::drawChar(display_, *aaFont_, penX, baselineScreenY, folded,
+                           color);
+      penX = static_cast<int16_t>(penX +
+                                  AAFontDraw::charWidth(*aaFont_, folded));
+      continue;
+    }
+
+    if (cp < 0x80) {
+      const char ch = static_cast<char>(cp);
+      display_.setCursor(penX, baselineScreenY);
+      display_.write(static_cast<uint8_t>(ch));
+      penX = static_cast<int16_t>(penX + measureCharWidth(ch));
+    }
+  }
 }
 
 void Canvas::contentToScreen(int16_t cx, int16_t cy, int16_t &sx,
@@ -142,47 +284,28 @@ void Canvas::fillRect(const Rect &box, uint16_t color) {
 }
 
 void Canvas::fillRoundRect(const Rect &box, int16_t radius, uint16_t color) {
-  int16_t sx, sy;
-  contentToScreen(box.x, box.y, sx, sy);
-  if (radius <= 0) {
-    display_.fillRect(sx, sy, box.w, box.h, color);
+  int16_t sx0, sy0;
+  contentToScreen(box.x, box.y, sx0, sy0);
+  int16_t r = sx(radius);
+  if (r <= 0) {
+    display_.fillRect(sx0, sy0, box.w, box.h, color);
     return;
   }
-  int16_t r = radius;
   if (r * 2 > box.w) r = box.w / 2;
   if (r * 2 > box.h) r = box.h / 2;
-  display_.fillRoundRect(sx, sy, box.w, box.h, r, color);
+  display_.fillRoundRect(sx0, sy0, box.w, box.h, r, color);
 }
 
 void Canvas::drawOutline(const Rect &box, uint8_t width, uint16_t color,
                          bool outside, int16_t radius) {
-  if (width == 0 || box.w <= 0 || box.h <= 0) return;
-  int16_t sx, sy;
-  contentToScreen(box.x, box.y, sx, sy);
-  for (uint8_t i = 0; i < width; i++) {
-    int16_t x, y, w, h;
-    if (outside) {
-      x = static_cast<int16_t>(sx - (i + 1));
-      y = static_cast<int16_t>(sy - (i + 1));
-      w = static_cast<int16_t>(box.w + 2 * (i + 1));
-      h = static_cast<int16_t>(box.h + 2 * (i + 1));
-    } else {
-      x = static_cast<int16_t>(sx + i);
-      y = static_cast<int16_t>(sy + i);
-      w = static_cast<int16_t>(box.w - 2 * i);
-      h = static_cast<int16_t>(box.h - 2 * i);
-      if (w <= 0 || h <= 0) break;
-    }
-    if (radius > 0) {
-      int16_t rr = static_cast<int16_t>(radius + (outside ? (i + 1) : -static_cast<int16_t>(i)));
-      if (rr < 0) rr = 0;
-      if (rr * 2 > w) rr = w / 2;
-      if (rr * 2 > h) rr = h / 2;
-      display_.drawRoundRect(x, y, w, h, rr, color);
-    } else {
-      display_.drawRect(x, y, w, h, color);
-    }
-  }
+  const uint8_t wPx = su8(width);
+  int16_t r0 = sx(radius);
+  if (wPx == 0 || box.w <= 0 || box.h <= 0) return;
+  int16_t sx0, sy0;
+  contentToScreen(box.x, box.y, sx0, sy0);
+  if (r0 * 2 > box.w) r0 = box.w / 2;
+  if (r0 * 2 > box.h) r0 = box.h / 2;
+  display_.strokeRoundRect(sx0, sy0, box.w, box.h, r0, wPx, color, outside);
 }
 
 DrawResult Canvas::drawText(const char *text, const TextStyle &style,
@@ -193,7 +316,7 @@ DrawResult Canvas::drawText(const char *text, const TextStyle &style,
       drawTextInBox(cx_, cy_, boxW, 10000, text, style, true);
   if (advance) {
     cx_ = bounds_.x;
-    cy_ = static_cast<int16_t>(cy_ + r.h + style.paragraphGap);
+    cy_ = static_cast<int16_t>(cy_ + r.h + sx(style.paragraphGap));
     lastLineH_ = fontLineHeight();
   }
   return r;
@@ -205,7 +328,7 @@ DrawResult Canvas::drawText(const Rect &box, const char *text,
       drawTextInBox(box.x, box.y, box.w, box.h, text, style, true);
   if (advance) {
     cx_ = bounds_.x;
-    cy_ = static_cast<int16_t>(box.y + r.h + style.paragraphGap);
+    cy_ = static_cast<int16_t>(box.y + r.h + sx(style.paragraphGap));
     lastLineH_ = fontLineHeight();
   }
   return r;
@@ -223,11 +346,20 @@ DrawResult Canvas::drawTextInBox(int16_t boxX, int16_t boxY, int16_t boxW,
   if (!text || boxW <= 0 || boxH <= 0) return result;
 
   applyFont(style.font);
+  syncEmojiDrawSize(style.emojiSize);
   display_.setTextColor(style.color);
   display_.setTextWrap(false);
 
-  const int16_t lineH =
-      static_cast<int16_t>(fontLineHeight() + style.lineGap);
+  const int16_t fontH = fontLineHeight();
+  const int16_t rowH =
+      (emojiDrawPx_ > fontH) ? emojiDrawPx_ : fontH;
+  int16_t lineH;
+  if (style.lineHeight > 0) {
+    lineH = sx(static_cast<int16_t>(style.lineHeight));
+    if (lineH < 1) lineH = 1;
+  } else {
+    lineH = static_cast<int16_t>(rowH + sx(static_cast<int16_t>(style.lineGap)));
+  }
   const int16_t baselineOffset = fontBaseline();
 
   int16_t penY = boxY;
@@ -236,7 +368,7 @@ DrawResult Canvas::drawTextInBox(int16_t boxX, int16_t boxY, int16_t boxW,
   int16_t lines = 0;
 
   while (*p) {
-    if ((penY - boxY) + fontLineHeight() > boxH) break;
+    if ((penY - boxY) + rowH > boxH) break;
 
     while (*p == ' ') p++;
     if (*p == '\n') {
@@ -253,14 +385,19 @@ DrawResult Canvas::drawTextInBox(int16_t boxX, int16_t boxY, int16_t boxW,
     int16_t widthBeforeBreak = 0;
 
     while (*p && *p != '\n') {
-      const int16_t cw = measureCharWidth(*p);
-      if (width + cw > boxW && p > lineStart) break;
+      uint32_t cp = 0;
+      const char *cpStart = p;
+      if (!ColorEmojiDraw::nextUtf8(p, cp)) break;
+      const int16_t cw = measureCodeWidth(cp);
+      if (width + cw > boxW && cpStart > lineStart) {
+        p = cpStart;
+        break;
+      }
       width = static_cast<int16_t>(width + cw);
-      if (*p == ' ') {
-        breakAt = p;
+      if (cp == ' ') {
+        breakAt = cpStart;
         widthBeforeBreak = static_cast<int16_t>(width - cw);
       }
-      p++;
     }
 
     const char *lineEnd = p;
@@ -268,17 +405,19 @@ DrawResult Canvas::drawTextInBox(int16_t boxX, int16_t boxY, int16_t boxW,
     if (breakAt && *p && *p != '\n') {
       lineEnd = breakAt;
       lineW = widthBeforeBreak;
-      p = breakAt + 1;
+      p = breakAt;
+      uint32_t spaceCp = 0;
+      ColorEmojiDraw::nextUtf8(p, spaceCp); // skip the space
     }
 
     if (lineEnd == lineStart) {
       if (!*p) break;
-      if (p == lineStart) {
-        p++;
-        lineW = measureCharWidth(*lineStart);
-      }
+      uint32_t cp = 0;
+      const char *cpStart = p;
+      if (!ColorEmojiDraw::nextUtf8(p, cp)) break;
       lineEnd = p;
-      lineW = measureTextWidth(lineStart, static_cast<size_t>(lineEnd - lineStart));
+      lineW = measureCodeWidth(cp);
+      if (lineEnd == cpStart) break;
     }
 
     int16_t drawX = boxX;
@@ -289,21 +428,10 @@ DrawResult Canvas::drawTextInBox(int16_t boxX, int16_t boxY, int16_t boxW,
     }
 
     if (paint) {
-      int16_t sx, sy;
-      contentToScreen(drawX, static_cast<int16_t>(penY + baselineOffset), sx, sy);
-
-      if (aaFont_) {
-        int16_t penX = sx;
-        for (const char *c = lineStart; c < lineEnd; c++) {
-          AAFontDraw::drawChar(display_, *aaFont_, penX, sy, *c, style.color);
-          penX = static_cast<int16_t>(penX + AAFontDraw::charWidth(*aaFont_, *c));
-        }
-      } else {
-        display_.setCursor(sx, sy);
-        for (const char *c = lineStart; c < lineEnd; c++) {
-          display_.write(static_cast<uint8_t>(*c));
-        }
-      }
+      int16_t screenX, screenY;
+      contentToScreen(drawX, static_cast<int16_t>(penY + baselineOffset),
+                      screenX, screenY);
+      drawUtf8Span(screenX, screenY, lineStart, lineEnd, style.color);
     }
 
     if (lineW > maxLineW) maxLineW = lineW;
@@ -316,7 +444,7 @@ DrawResult Canvas::drawTextInBox(int16_t boxX, int16_t boxY, int16_t boxW,
   lastLineH_ = lineH;
   result.w = maxLineW;
   result.h =
-      static_cast<int16_t>(lines > 0 ? (lines * lineH - style.lineGap) : 0);
+      static_cast<int16_t>(lines > 0 ? (lines - 1) * lineH + rowH : 0);
   result.endX = static_cast<int16_t>(boxX + maxLineW);
   result.endY = static_cast<int16_t>(boxY + result.h);
   return result;
@@ -486,12 +614,12 @@ void Canvas::drawUI() {
 }
 
 void Canvas::drawUI(int16_t availW) {
-  UIText::setLayoutCanvas(this);
+  UINode::setLayoutHost(this);
   for (uint8_t i = 0; i < rootCount_; i++) {
     roots_[i]->layout(0, 0, availW);
   }
   for (uint8_t i = 0; i < rootCount_; i++) {
     roots_[i]->draw(*this);
   }
-  UIText::setLayoutCanvas(nullptr);
+  UINode::setLayoutHost(nullptr);
 }

@@ -5,17 +5,33 @@
 #include "ui/UINode.h"
 #include "ui/UIText.h"
 
+#include <esp_heap_caps.h>
 #include <math.h>
+#include <string.h>
 
 Page::Page(const Rect &viewport) : viewport_(viewport) {}
 
-void Page::setViewport(const Rect &r) { viewport_ = r; }
+Page::~Page() {
+  if (contentFb_) {
+    heap_caps_free(contentFb_);
+    contentFb_ = nullptr;
+  }
+}
+
+void Page::setViewport(const Rect &r) {
+  viewport_ = r;
+  contentDirty_ = true;
+}
 
 void Page::setContentHeight(int16_t h) {
   contentH_ = h < 0 ? 0 : h;
   const int16_t m = maxScroll();
   if (scrollTarget_ > m) scrollTarget_ = m;
   if (scrollY_ > m) scrollY_ = m;
+}
+
+bool Page::pressAnimating() const {
+  return focused_ && focused_->visualAnimating();
 }
 
 int16_t Page::maxScroll() const {
@@ -44,7 +60,8 @@ void Page::scrollToImmediate(int16_t y) {
 
 int16_t Page::scrollStep() const {
   int16_t step = static_cast<int16_t>(viewport_.h / 3);
-  if (step < 40) step = 40;
+  const int16_t minStep = scalePx(24, uiScale_);
+  if (step < minStep) step = minStep;
   return step;
 }
 
@@ -70,6 +87,7 @@ void Page::beginUI() {
   rootCount_ = 0;
   focused_ = nullptr;
   focusCount_ = 0;
+  // Keep contentFb cache; invalidate only on focus/UI changes.
 }
 
 UIDiv &Page::div() { return arena_.create<UIDiv>(); }
@@ -104,6 +122,11 @@ void Page::tick(float dt) {
   for (uint8_t i = 0; i < rootCount_; i++) {
     roots_[i]->tick(dt);
   }
+
+  // Press dip/dim lives in node anim/chrome — must re-rasterize the cache.
+  if (focused_ && focused_->visualAnimating()) {
+    contentDirty_ = true;
+  }
 }
 
 void Page::collectFocusables() {
@@ -124,11 +147,13 @@ bool Page::intersectsViewport(const UINode &node) const {
 }
 
 void Page::clearFocus() {
+  if (focusIndex_ != kNoFocus) contentDirty_ = true;
   focusIndex_ = kNoFocus;
   focused_ = nullptr;
   for (uint8_t i = 0; i < focusCount_; i++) {
     focusables_[i]->setHighlighted(false);
   }
+  lastFocusIndex_ = kNoFocus;
 }
 
 void Page::syncFocus() {
@@ -145,6 +170,11 @@ void Page::syncFocus() {
     if (on) focused_ = focusables_[i];
   }
 
+  if (focusIndex_ != lastFocusIndex_) {
+    contentDirty_ = true;
+    lastFocusIndex_ = focusIndex_;
+  }
+
   if (focused_) ensureFocusedVisible();
 }
 
@@ -158,7 +188,7 @@ void Page::ensureFocusedVisible() {
   const int16_t viewTop = static_cast<int16_t>(scrollTarget_);
   const int16_t viewBottom =
       static_cast<int16_t>(scrollTarget_ + viewport_.h);
-  constexpr int16_t kMargin = 8;
+  const int16_t kMargin = scalePx(8, uiScale_);
 
   if (top < viewTop + kMargin) {
     scrollTo(static_cast<int16_t>(top - kMargin));
@@ -193,23 +223,21 @@ bool Page::moveFocusInViewport(int8_t direction) {
   collectFocusables();
   if (focusCount_ == 0 || focusIndex_ == kNoFocus) return false;
 
+  // Move along the full focus list (skipping non-highlightable like disabled).
+  // ensureFocusedVisible() (via syncFocus) scrolls the new target into view.
   if (direction > 0) {
-    for (uint8_t i = static_cast<uint8_t>(focusIndex_ + 1); i < focusCount_;
-         i++) {
-      if (intersectsViewport(*focusables_[i])) {
-        setFocusIndex(i);
-        return true;
-      }
+    if (focusIndex_ + 1 < focusCount_) {
+      setFocusIndex(static_cast<uint8_t>(focusIndex_ + 1));
+      return true;
     }
   } else {
-    for (int16_t i = static_cast<int16_t>(focusIndex_) - 1; i >= 0; i--) {
-      if (intersectsViewport(*focusables_[static_cast<uint8_t>(i)])) {
-        setFocusIndex(static_cast<uint8_t>(i));
-        return true;
-      }
+    if (focusIndex_ > 0) {
+      setFocusIndex(static_cast<uint8_t>(focusIndex_ - 1));
+      return true;
     }
   }
 
+  // Past the first/last focusable — release focus (back to browse scroll).
   clearFocus();
   browseScroll(direction);
   return true;
@@ -259,7 +287,8 @@ bool Page::dispatch(UIEvent &e) {
 }
 
 void Page::layoutUI(Canvas &canvas) {
-  UIText::setLayoutCanvas(&canvas);
+  uiScale_ = canvas.uiScale();
+  UINode::setLayoutHost(&canvas);
   int16_t maxBottom = 0;
   for (uint8_t i = 0; i < rootCount_; i++) {
     roots_[i]->layout(0, 0, viewport_.w);
@@ -267,23 +296,104 @@ void Page::layoutUI(Canvas &canvas) {
     const int16_t bottom = static_cast<int16_t>(b.y + b.h);
     if (bottom > maxBottom) maxBottom = bottom;
   }
-  UIText::setLayoutCanvas(nullptr);
+  UINode::setLayoutHost(nullptr);
   setContentHeight(maxBottom);
 }
 
-void Page::drawUI(Canvas &canvas) {
-  if (focused_) ensureFocusedVisible();
+bool Page::ensureContentBuffer(int16_t h) {
+  if (h < viewport_.h) h = viewport_.h;
+  if (contentFb_ && contentFbW_ == viewport_.w && contentFbH_ >= h) {
+    return true;
+  }
+  if (contentFb_) {
+    heap_caps_free(contentFb_);
+    contentFb_ = nullptr;
+  }
+  const size_t bytes = (size_t)viewport_.w * (size_t)h * sizeof(uint16_t);
+  contentFb_ =
+      (uint16_t *)heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!contentFb_) {
+    contentFb_ = (uint16_t *)heap_caps_malloc(
+        bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  }
+  if (!contentFb_) return false;
+  contentFbW_ = viewport_.w;
+  contentFbH_ = h;
+  contentDirty_ = true;
+  return true;
+}
 
-  canvas.setClip(viewport_);
-  canvas.setOrigin(viewport_.x,
-                   static_cast<int16_t>(viewport_.y - scrollY()));
+void Page::rasterizeContent(Canvas &canvas) {
+  Display &disp = canvas.display();
+  int16_t h = contentH_;
+  if (h < viewport_.h) h = viewport_.h;
+  if (!ensureContentBuffer(h)) return;
 
-  UIText::setLayoutCanvas(&canvas);
+  disp.pushDrawTarget(contentFb_, contentFbW_, contentFbH_);
+  disp.clear(contentBg_);
+  canvas.setOrigin(0, 0);
+  canvas.clearClip();
+  canvas.setBounds(Rect(0, 0, contentFbW_, contentFbH_));
+
   for (uint8_t i = 0; i < rootCount_; i++) {
     roots_[i]->draw(canvas);
   }
-  UIText::setLayoutCanvas(nullptr);
 
-  canvas.clearClip();
-  canvas.setOrigin(0, 0);
+  disp.popDrawTarget();
+  contentDirty_ = false;
+}
+
+void Page::blitViewport(Display &display) {
+  uint16_t *dst = display.panelBuffer();
+  if (!dst || !contentFb_) return;
+
+  const int16_t w = viewport_.w;
+  const int16_t h = viewport_.h;
+  const int16_t dstW = display.width();
+  int16_t srcY = scrollY();
+  if (srcY < 0) srcY = 0;
+  if (srcY > maxScroll()) srcY = maxScroll();
+
+  for (int16_t row = 0; row < h; row++) {
+    const int16_t sy = static_cast<int16_t>(srcY + row);
+    const int16_t dy = static_cast<int16_t>(viewport_.y + row);
+    if (dy < 0 || dy >= display.height()) continue;
+    uint16_t *drow = dst + (int32_t)dy * dstW + viewport_.x;
+    if (sy >= 0 && sy < contentFbH_) {
+      memcpy(drow, contentFb_ + (int32_t)sy * w, (size_t)w * sizeof(uint16_t));
+    } else {
+      for (int16_t x = 0; x < w; x++) drow[x] = contentBg_;
+    }
+  }
+}
+
+bool Page::presentViewport(Display &display) {
+  if (!contentFb_) return false;
+
+  const int16_t w = viewport_.w;
+  const int16_t h = viewport_.h;
+  int16_t srcY = scrollY();
+  if (srcY < 0) srcY = 0;
+  if (srcY > maxScroll()) srcY = maxScroll();
+
+  // Copy into the panel FB then SPI-present from there. Streaming PSRAM
+  // content through writePixels is unreliable on some ESP32-S3 setups.
+  blitViewport(display);
+  display.present(viewport_.x, viewport_.y, w, h);
+  lastPresentedScrollY_ = srcY;
+  return true;
+}
+
+bool Page::drawUI(Canvas &canvas) {
+  uiScale_ = canvas.uiScale();
+  if (focused_) ensureFocusedVisible();
+
+  const int16_t sy = scrollY();
+  if (contentDirty_) {
+    rasterizeContent(canvas);
+  } else if (!contentDirty_ && sy == lastPresentedScrollY_ && contentFb_) {
+    return false; // identical frame already on glass
+  }
+
+  return presentViewport(canvas.display());
 }

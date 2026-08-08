@@ -10,10 +10,6 @@ import sys
 from PIL import Image, ImageDraw, ImageFont
 
 
-FIRST = 0x20
-LAST = 0x7E  # printable ASCII
-
-
 def pack_4bpp(alphas: list[int]) -> bytes:
     """Pack 8-bit alphas into 4bpp (high nibble first)."""
     out = bytearray()
@@ -25,20 +21,16 @@ def pack_4bpp(alphas: list[int]) -> bytes:
 
 
 def render_glyph(font: ImageFont.FreeTypeFont, ch: str, pad: int = 1):
-    # Oversample-ish: Pillow FreeType already AA at the requested size.
     ascent, descent = font.getmetrics()
-    # Measure with a generous canvas then crop to ink.
     canvas_w = max(8, font.getlength(ch) + pad * 4 + 8)
     canvas_h = ascent + descent + pad * 4 + 8
     img = Image.new("L", (int(canvas_w) + 1, int(canvas_h) + 1), 0)
     draw = ImageDraw.Draw(img)
-    # Draw at baseline = ascent + pad
     baseline = ascent + pad
     draw.text((pad, pad), ch, font=font, fill=255)
 
     bbox = img.getbbox()
     if bbox is None:
-        # Space / empty
         advance = max(1, int(round(font.getlength(ch))))
         return {
             "width": 0,
@@ -53,8 +45,7 @@ def render_glyph(font: ImageFont.FreeTypeFont, ch: str, pad: int = 1):
     cropped = img.crop((l, t, r, b))
     alphas = list(cropped.getdata())
     advance = max(1, int(round(font.getlength(ch))))
-    # yOffset: from baseline to top of bitmap (negative = above baseline)
-    y_offset = (t - baseline)
+    y_offset = t - baseline
     x_offset = l - pad
     return {
         "width": cropped.width,
@@ -76,16 +67,40 @@ def c_ident(name: str) -> str:
     return "".join(out)
 
 
-def generate(ttf: str, px: int, out_path: str, symbol: str | None = None):
+def glyph_comment(code: int) -> str:
+    if 32 < code < 127 and code not in (0x5C, 0x27):  # skip \ '
+        return chr(code)
+    return f"U+{code:04X}"
+
+
+def generate(
+    ttf: str,
+    px: int,
+    out_path: str,
+    symbol: str | None = None,
+    first: int = 0x20,
+    last: int = 0xFF,
+):
     font = ImageFont.truetype(ttf, px)
     ascent, descent = font.getmetrics()
     y_advance = ascent + descent + 2
-    baseline = ascent  # distance from top of line box to baseline
+    baseline = ascent
 
     glyphs = []
     bitmaps = bytearray()
-    for code in range(FIRST, LAST + 1):
-        g = render_glyph(font, chr(code))
+    for code in range(first, last + 1):
+        # Skip C1 controls — empty placeholders keep contiguous indexing.
+        if 0x7F <= code <= 0x9F:
+            g = {
+                "width": 0,
+                "height": 0,
+                "xAdvance": 0,
+                "xOffset": 0,
+                "yOffset": 0,
+                "alphas": b"",
+            }
+        else:
+            g = render_glyph(font, chr(code))
         offset = len(bitmaps)
         bitmaps.extend(g["alphas"])
         glyphs.append({**g, "bitmapOffset": offset})
@@ -95,9 +110,12 @@ def generate(ttf: str, px: int, out_path: str, symbol: str | None = None):
         symbol = f"{c_ident(base)}{px}aa"
 
     lines = []
-    lines.append(f"// Auto-generated 4bpp AA font from {os.path.basename(ttf)} @ {px}px")
+    lines.append(
+        f"// Auto-generated 4bpp AA font from {os.path.basename(ttf)} @ {px}px"
+    )
+    lines.append(f"// Codepoints U+{first:04X}..U+{last:04X} (Latin-1 block)")
     lines.append("#pragma once")
-    lines.append("#include \"AAFont.h\"")
+    lines.append('#include "AAFont.h"')
     lines.append("")
     lines.append(f"const uint8_t {symbol}Bitmaps[] PROGMEM = {{")
     for i in range(0, len(bitmaps), 16):
@@ -109,16 +127,16 @@ def generate(ttf: str, px: int, out_path: str, symbol: str | None = None):
     lines.append("};")
     lines.append("")
     lines.append(f"const AAGlyph {symbol}Glyphs[] PROGMEM = {{")
-    for code, g in zip(range(FIRST, LAST + 1), glyphs):
+    for code, g in zip(range(first, last + 1), glyphs):
         lines.append(
-            "  {{{offset}, {w}, {h}, {adv}, {xo}, {yo}}}, // '{ch}'".format(
+            "  {{{offset}, {w}, {h}, {adv}, {xo}, {yo}}}, // {ch}".format(
                 offset=g["bitmapOffset"],
                 w=g["width"],
                 h=g["height"],
                 adv=g["xAdvance"],
                 xo=g["xOffset"],
                 yo=g["yOffset"],
-                ch=chr(code) if 32 < code < 127 else "?",
+                ch=glyph_comment(code),
             )
         )
     lines.append("};")
@@ -126,17 +144,23 @@ def generate(ttf: str, px: int, out_path: str, symbol: str | None = None):
     lines.append(f"const AAFont {symbol} PROGMEM = {{")
     lines.append(f"  {symbol}Bitmaps,")
     lines.append(f"  {symbol}Glyphs,")
-    lines.append(f"  0x{FIRST:02X}, 0x{LAST:02X},")
+    lines.append(f"  0x{first:02X}, 0x{last:02X},")
     lines.append(f"  {y_advance}, {baseline}")
     lines.append("};")
     lines.append("")
+
+    max_off = max((g["bitmapOffset"] for g in glyphs), default=0)
+    if max_off > 65535:
+        raise SystemExit(
+            f"bitmapOffset {max_off} exceeds uint16_t — widen AAGlyph.bitmapOffset"
+        )
 
     with open(out_path, "w") as f:
         f.write("\n".join(lines))
 
     print(
         f"wrote {out_path}: {len(glyphs)} glyphs, {len(bitmaps)} bitmap bytes, "
-        f"yAdvance={y_advance}, baseline={baseline}"
+        f"yAdvance={y_advance}, baseline={baseline}, maxOff={max_off}"
     )
 
 
@@ -146,8 +170,10 @@ def main():
     ap.add_argument("size", type=int, help="pixel size")
     ap.add_argument("-o", "--output", required=True)
     ap.add_argument("-n", "--name", help="C symbol base name")
+    ap.add_argument("--first", type=lambda s: int(s, 0), default=0x20)
+    ap.add_argument("--last", type=lambda s: int(s, 0), default=0xFF)
     args = ap.parse_args()
-    generate(args.ttf, args.size, args.output, args.name)
+    generate(args.ttf, args.size, args.output, args.name, args.first, args.last)
 
 
 if __name__ == "__main__":

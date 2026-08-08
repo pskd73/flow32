@@ -4,7 +4,7 @@
  * Flow32 — ESP32 SPI TFT UI toolkit.
  *
  * Display / Canvas / Page + composable UI + input hub.
- * Pick a panel via DisplayPanel helpers (Panel183, Panel18, …).
+ * Pass a DisplayPanel from the app (see src/panels.h in this repo).
  */
 
 #include "Display.h"
@@ -13,6 +13,8 @@
 #include "Page.h"
 #include "Rect.h"
 #include "AAFont.h"
+#include "ColorEmoji.h"
+#include "NotoColorEmoji.h"
 
 #include "ui/Style.h"
 #include "ui/Theme.h"

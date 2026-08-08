@@ -15,6 +15,7 @@ struct AAGlyph {
 /**
  * Grayscale AA font (4 bits per pixel, high nibble first).
  * Coverage 0..15 is blended against the existing framebuffer pixel.
+ * Contiguous codepoints [first, last] — typically ASCII + Latin-1 (0x20..0xFF).
  */
 struct AAFont {
   const uint8_t *bitmap;
@@ -29,9 +30,11 @@ class Display;
 
 namespace AAFontDraw {
 uint16_t blend565(uint16_t fg, uint16_t bg, uint8_t cover4);
-const AAGlyph *glyph(const AAFont &font, char c);
-int16_t charWidth(const AAFont &font, char c);
+/** Fold a few common Unicode punctuation into Latin-1 / ASCII. */
+uint32_t foldCodepoint(uint32_t cp);
+const AAGlyph *glyph(const AAFont &font, uint32_t cp);
+int16_t charWidth(const AAFont &font, uint32_t cp);
 int16_t textWidth(const AAFont &font, const char *text, size_t len);
 void drawChar(Display &display, const AAFont &font, int16_t baselineX,
-              int16_t baselineY, char c, uint16_t color);
+              int16_t baselineY, uint32_t cp, uint16_t color);
 } // namespace AAFontDraw

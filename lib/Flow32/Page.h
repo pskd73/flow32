@@ -12,17 +12,11 @@ class UIText;
 class UIImage;
 
 /**
- * Scrollable content region with the same composable UI API as Canvas.
+ * Scrollable content region with composable UI.
  *
- * Focus model:
- * - Nothing focused by default (browse/scroll).
- * - Select (unfocused): focus first focusable intersecting the viewport.
- * - Up/Down while focused: move to next in-viewport focusable in that
- *   direction; if none, clear focus and scroll.
- * - Up/Down while unfocused: scroll only.
- *
- * focusIndex_ persists across beginUI() rebuilds; focused() is valid after
- * syncFocus() until the next beginUI().
+ * Content is rasterized into a tall cache buffer; scrolling only memcpy's the
+ * viewport into the panel framebuffer and presents — avoids re-layout/fonts
+ * every animation frame (much smoother on slow SPI panels).
  */
 class Page {
 public:
@@ -31,12 +25,16 @@ public:
   static constexpr uint8_t kNoFocus = 0xFF;
 
   explicit Page(const Rect &viewport);
+  ~Page();
 
   void setViewport(const Rect &r);
   Rect viewport() const { return viewport_; }
 
   void setContentHeight(int16_t h);
   int16_t contentHeight() const { return contentH_; }
+
+  void setContentBackground(uint16_t color) { contentBg_ = color; }
+  void invalidateContent() { contentDirty_ = true; }
 
   int16_t scrollY() const { return static_cast<int16_t>(scrollY_ + 0.5f); }
   int16_t maxScroll() const;
@@ -45,17 +43,21 @@ public:
     return d > 0.5f || d < -0.5f;
   }
 
-  /** Animate scroll to y (clamped). */
+  /** Focused control still playing a press/tap motion. */
+  bool pressAnimating() const;
+
+  /** Scroll or press motion — safe to skip UI rebuild while true. */
+  bool uiAnimating() const {
+    return scrollAnimating() || pressAnimating();
+  }
+
   void scrollBy(int16_t dy);
   void scrollTo(int16_t y);
-  /** Jump without animation (content resize / hard reset). */
   void scrollToImmediate(int16_t y);
 
-  /** Legacy flow helpers (still used by low-level Canvas drawing). */
   void begin(Canvas &canvas);
   void end(Canvas &canvas, bool captureHeight = true);
 
-  // --- composable UI (own arena) ---
   void beginUI();
   UIDiv &div();
   UIButton &button();
@@ -63,13 +65,15 @@ public:
   UIImage &image(const uint16_t *pixels, int16_t srcW, int16_t srcH);
   void add(UINode &node);
   void tick(float dt);
-  /** Layout roots in content space; updates content height. Call before dispatch. */
   void layoutUI(Canvas &canvas);
-  void drawUI(Canvas &canvas);
+  /**
+   * Rasterize if dirty, then push the scrolled viewport to the panel.
+   * Prefer streaming from the content cache (no panel-FB copy) when possible.
+   * Returns true if the panel was updated (caller may skip canvas.present()).
+   */
+  bool drawUI(Canvas &canvas);
 
-  /** Apply focusIndex_ highlights; refresh focused_ for this frame. */
   void syncFocus();
-  /** Scroll so the focused node is fully inside the viewport (needs layout). */
   void ensureFocusedVisible();
   void clearFocus();
 
@@ -79,17 +83,23 @@ public:
   void setFocusIndex(uint8_t i);
   uint8_t focusCount() const { return focusCount_; }
 
-  /** Focus first focusable that intersects the viewport. */
   bool focusFirstInViewport();
-
   bool dispatch(UIEvent &e);
 
 private:
   Rect viewport_;
   int16_t contentH_ = 0;
-  float scrollY_ = 0;       // rendered position
-  float scrollTarget_ = 0;  // animated destination
-  float scrollSpeed_ = 14.0f; // higher = snappier ease
+  float scrollY_ = 0;
+  float scrollTarget_ = 0;
+  float scrollSpeed_ = 18.0f;
+  float uiScale_ = 1.0f;
+
+  uint16_t *contentFb_ = nullptr;
+  int16_t contentFbW_ = 0;
+  int16_t contentFbH_ = 0;
+  bool contentDirty_ = true;
+  uint16_t contentBg_ = 0;
+  uint8_t lastFocusIndex_ = kNoFocus;
 
   UIArena arena_{};
   UINode *roots_[kMaxRoots] = {};
@@ -106,4 +116,9 @@ private:
   int16_t scrollStep() const;
   bool moveFocusInViewport(int8_t direction);
   bool browseScroll(int8_t direction);
+  bool ensureContentBuffer(int16_t h);
+  void rasterizeContent(Canvas &canvas);
+  void blitViewport(Display &display);
+  bool presentViewport(Display &display);
+  int16_t lastPresentedScrollY_ = -1;
 };
