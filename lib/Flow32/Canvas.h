@@ -3,6 +3,8 @@
 #include "AAFont.h"
 #include "ColorEmoji.h"
 #include "ColorEmojiSd.h"
+#include "Icon.h"
+#include "IconSd.h"
 #include "Display.h"
 #include "Rect.h"
 #include "ui/Style.h"
@@ -13,6 +15,8 @@ class UIDiv;
 class UIButton;
 class UIToggle;
 class UIRange;
+class UISelect;
+class UISelectOption;
 class UIText;
 class UIImage;
 
@@ -21,13 +25,15 @@ struct TextStyle {
   uint16_t color = 0xFFFF;
   /** Absolute line box height in design px (0 = font + lineGap). */
   uint8_t lineHeight = 0;
-  uint8_t lineGap = 1;
-  uint8_t paragraphGap = 8;
+  uint8_t lineGap = 0;
+  uint8_t paragraphGap = 6;
   /**
-   * Force emoji draw size in design px (0 = match font line height).
-   * May exceed atlas bakedSize (upscales; softer).
+   * Force emoji / icon draw size in design px (0 = match font line height).
+   * May exceed atlas bakedSize (upscales; softer). Prefer ≤ bakedSize.
    */
   uint8_t emojiSize = 0;
+  /** Alias for emojiSize — Lucide icons share the same inline size. */
+  uint8_t iconSize = 0;
   Align align = Align::Start;
 };
 
@@ -106,6 +112,10 @@ public:
   }
   ColorEmojiSd *emojiSd() const { return emojiSd_; }
 
+  /** SD-backed Lucide icons (tintable alpha). */
+  void setIconSd(IconSd *sd) { iconSd_ = sd; }
+  IconSd *iconSd() const { return iconSd_; }
+
   DrawResult drawText(const char *text, const TextStyle &style,
                       bool advance = true);
   DrawResult drawText(const Rect &box, const char *text, const TextStyle &style,
@@ -135,6 +145,8 @@ public:
   UIButton &button();
   UIToggle &toggle();
   UIRange &range();
+  UISelect &select();
+  UISelectOption &selectOption();
   UIText &text(const char *s);
   UIImage &image(const uint16_t *pixels, int16_t srcW, int16_t srcH);
   void add(UINode &node);
@@ -156,6 +168,7 @@ private:
   const AAFont *aaFont_ = nullptr;
   const ColorEmojiAtlas *emojiAtlas_ = nullptr;
   ColorEmojiSd *emojiSd_ = nullptr;
+  IconSd *iconSd_ = nullptr;
   int16_t emojiDrawPx_ = 0;
 
   UIArena arena_{};

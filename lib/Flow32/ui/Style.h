@@ -129,12 +129,14 @@ public:
    */
   uint8_t lineHeight = 0;
   /** Extra leading when lineHeight is 0 (design px). */
-  uint8_t lineGap = 1;
+  uint8_t lineGap = 0;
   /**
-   * Emoji raster size in design px (0 = derive from font).
-   * Values above the atlas baked size upscale.
+   * Emoji / Lucide icon raster size in design px (0 = derive from font).
+   * Prefer ≤ atlas bakedSize (icons default bake 96) to avoid soft upscales.
    */
   uint8_t emojiSize = 0;
+  /** When set, overrides emojiSize for icon sizing (0 = use emojiSize). */
+  uint8_t iconSize = 0;
   uint16_t outlineColor = 0xFFFF; // focus ring
   uint8_t outlineWidth = 2;
   bool outlineOutside = true;
@@ -225,6 +227,10 @@ public:
   }
   Style &setEmojiSize(uint8_t v) {
     emojiSize = v;
+    return *this;
+  }
+  Style &setIconSize(uint8_t v) {
+    iconSize = v;
     return *this;
   }
   Style &setOutlineColor(uint16_t v) {

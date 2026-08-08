@@ -18,6 +18,7 @@ void UIText::layoutSelf(int16_t x, int16_t y, int16_t availW) {
   ts.lineHeight = style_.lineHeight;
   ts.lineGap = style_.lineGap;
   ts.emojiSize = style_.emojiSize;
+  ts.iconSize = style_.iconSize;
   ts.paragraphGap = 0;
 
   int16_t textH = 0;
@@ -45,6 +46,7 @@ void UIText::paintSelf(Canvas &canvas) {
   ts.lineHeight = style_.lineHeight;
   ts.lineGap = style_.lineGap;
   ts.emojiSize = style_.emojiSize;
+  ts.iconSize = style_.iconSize;
   ts.paragraphGap = 0;
 
   const Rect box = canvas.contentBox(borderBox_, style_.padding);

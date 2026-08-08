@@ -9,6 +9,7 @@
 #include "ui/UIText.h"
 #include "ui/UIToggle.h"
 #include "ui/UIRange.h"
+#include "ui/UISelect.h"
 
 #include <string.h>
 
@@ -187,10 +188,11 @@ int16_t Canvas::measureCharWidth(char c) const {
 
 void Canvas::syncEmojiDrawSize(uint8_t overridePx) {
   emojiDrawPx_ = 0;
-  const uint8_t baked =
-      emojiSd_ ? emojiSd_->bakedSize()
-               : (emojiAtlas_ ? emojiAtlas_->bakedSize : 0);
-  if (baked == 0) return;
+  const bool haveEmoji =
+      (emojiSd_ && emojiSd_->ready()) ||
+      (emojiAtlas_ && emojiAtlas_->bakedSize > 0);
+  const bool haveIcons = iconSd_ && iconSd_->ready();
+  if (!haveEmoji && !haveIcons) return;
   int16_t px;
   if (overridePx > 0) {
     px = sx(static_cast<int16_t>(overridePx));
@@ -202,6 +204,11 @@ void Canvas::syncEmojiDrawSize(uint8_t overridePx) {
 }
 
 int16_t Canvas::measureCodeWidth(uint32_t cp) const {
+  if (emojiDrawPx_ > 0 && IconDraw::isIconCp(cp) && iconSd_ &&
+      iconSd_->ready()) {
+    const int16_t adv = iconSd_->advance(cp, emojiDrawPx_);
+    if (adv > 0) return adv;
+  }
   if (emojiDrawPx_ > 0) {
     if (emojiSd_ && emojiSd_->ready()) {
       const int16_t adv = emojiSd_->advance(cp, emojiDrawPx_);
@@ -250,6 +257,14 @@ void Canvas::drawUtf8Span(int16_t baselineScreenX, int16_t baselineScreenY,
     const char *before = p;
     if (!ColorEmojiDraw::nextUtf8(p, cp) || p > end) break;
     if (before == p) break;
+
+    if (emojiDrawPx_ > 0 && IconDraw::isIconCp(cp) && iconSd_ &&
+        iconSd_->ready() &&
+        iconSd_->draw(display_, cp, penX, baselineScreenY, emojiDrawPx_,
+                      color)) {
+      penX = static_cast<int16_t>(penX + iconSd_->advance(cp, emojiDrawPx_));
+      continue;
+    }
 
     if (emojiDrawPx_ > 0) {
       if (emojiSd_ && emojiSd_->ready() &&
@@ -363,7 +378,9 @@ DrawResult Canvas::drawTextInBox(int16_t boxX, int16_t boxY, int16_t boxW,
   if (!text || boxW <= 0 || boxH <= 0) return result;
 
   applyFont(style.font);
-  syncEmojiDrawSize(style.emojiSize);
+  const uint8_t mediaSize =
+      style.iconSize > 0 ? style.iconSize : style.emojiSize;
+  syncEmojiDrawSize(mediaSize);
   display_.setTextColor(style.color);
   display_.setTextWrap(false);
 
@@ -375,7 +392,14 @@ DrawResult Canvas::drawTextInBox(int16_t boxX, int16_t boxY, int16_t boxW,
     lineH = sx(static_cast<int16_t>(style.lineHeight));
     if (lineH < 1) lineH = 1;
   } else {
-    lineH = static_cast<int16_t>(rowH + sx(static_cast<int16_t>(style.lineGap)));
+    // AA/GFX yAdvance is generous; default wrap a bit tighter for UI density.
+    int16_t stride = static_cast<int16_t>((rowH * 4) / 5); // 80%
+    const int16_t floor =
+        static_cast<int16_t>(fontBaseline() + sx(3)); // keep room for descenders
+    if (stride < floor) stride = floor;
+    if (emojiDrawPx_ > stride) stride = emojiDrawPx_;
+    lineH = static_cast<int16_t>(stride + sx(static_cast<int16_t>(style.lineGap)));
+    if (lineH < 1) lineH = 1;
   }
   const int16_t baselineOffset = fontBaseline();
 
@@ -460,8 +484,15 @@ DrawResult Canvas::drawTextInBox(int16_t boxX, int16_t boxY, int16_t boxW,
 
   lastLineH_ = lineH;
   result.w = maxLineW;
-  result.h =
-      static_cast<int16_t>(lines > 0 ? (lines - 1) * lineH + rowH : 0);
+  if (lines <= 0) {
+    result.h = 0;
+  } else if (style.lineHeight > 0) {
+    // Absolute line box: every line (including the last) uses lineH.
+    result.h = static_cast<int16_t>(lines * lineH);
+  } else {
+    result.h =
+        static_cast<int16_t>((lines - 1) * lineH + rowH);
+  }
   result.endX = static_cast<int16_t>(boxX + maxLineW);
   result.endY = static_cast<int16_t>(boxY + result.h);
   return result;
@@ -612,6 +643,12 @@ UIButton &Canvas::button() { return arena_.create<UIButton>(); }
 UIToggle &Canvas::toggle() { return arena_.create<UIToggle>(); }
 
 UIRange &Canvas::range() { return arena_.create<UIRange>(); }
+
+UISelect &Canvas::select() { return arena_.create<UISelect>(); }
+
+UISelectOption &Canvas::selectOption() {
+  return arena_.create<UISelectOption>();
+}
 
 UIText &Canvas::text(const char *s) { return arena_.create<UIText>(s); }
 

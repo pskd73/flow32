@@ -6,6 +6,7 @@
 #include "ui/UIText.h"
 #include "ui/UIToggle.h"
 #include "ui/UIRange.h"
+#include "ui/UISelect.h"
 
 #include <esp_heap_caps.h>
 #include <math.h>
@@ -99,6 +100,10 @@ UIButton &Page::button() { return arena_.create<UIButton>(); }
 UIToggle &Page::toggle() { return arena_.create<UIToggle>(); }
 
 UIRange &Page::range() { return arena_.create<UIRange>(); }
+
+UISelect &Page::select() { return arena_.create<UISelect>(); }
+
+UISelectOption &Page::selectOption() { return arena_.create<UISelectOption>(); }
 
 UIText &Page::text(const char *s) { return arena_.create<UIText>(s); }
 

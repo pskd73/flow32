@@ -1,5 +1,7 @@
 #include "UIButton.h"
 #include "UIText.h"
+#include "../Canvas.h"
+#include "../IconSd.h"
 
 #include <math.h>
 
@@ -8,6 +10,8 @@ constexpr float kPressDipPx = 3.f;
 constexpr float kPressDim = 0.28f;
 constexpr float kPressEase = 22.f;
 constexpr float kDisabledOpacity = 0.5f; // mix toward backdrop
+constexpr int16_t kIconDesign = 16;
+constexpr int16_t kIconGap = 6;
 } // namespace
 
 UIButton::UIButton() {
@@ -76,6 +80,39 @@ UIButton &UIButton::disabledBackdrop(uint16_t color) {
     syncLabelColors();
   }
   return *this;
+}
+
+UIButton &UIButton::icon(const char *lucideName, const char *side) {
+  iconName_ = lucideName;
+  iconRight_ = false;
+  if (side && side[0]) {
+    if (side[0] == 'r' || side[0] == 'R') iconRight_ = true;
+  }
+  return *this;
+}
+
+int16_t UIButton::iconSlotPx() const {
+  if (!iconName_ || !iconName_[0]) return 0;
+  Canvas *host = layoutHost();
+  const float s = layoutScale();
+  const int16_t design =
+      style_.iconSize > 0 ? static_cast<int16_t>(style_.iconSize) : kIconDesign;
+  const int16_t slot = static_cast<int16_t>(design + kIconGap);
+  return host ? host->sx(slot) : scalePx(slot, s);
+}
+
+void UIButton::layoutSelf(int16_t x, int16_t y, int16_t availW) {
+  const int16_t slot = iconSlotPx();
+  const Edges saved = style_.padding;
+  if (slot > 0) {
+    if (iconRight_) {
+      style_.padding.right = static_cast<int16_t>(saved.right + slot);
+    } else {
+      style_.padding.left = static_cast<int16_t>(saved.left + slot);
+    }
+  }
+  UIDiv::layoutSelf(x, y, availW);
+  style_.padding = saved;
 }
 
 void UIButton::applyChrome() {
@@ -165,4 +202,27 @@ bool UIButton::handleEvent(UIEvent &e) {
   return false;
 }
 
-void UIButton::paintSelf(Canvas & /*canvas*/) {}
+void UIButton::paintSelf(Canvas &canvas) {
+  if (!iconName_ || !iconName_[0]) return;
+  IconSd *icons = canvas.iconSd();
+  if (!icons || !icons->ready()) return;
+  const uint32_t cp = icons->codepoint(iconName_);
+  if (!cp) return;
+
+  const int16_t design =
+      style_.iconSize > 0 ? static_cast<int16_t>(style_.iconSize) : kIconDesign;
+  const int16_t iconPx = canvas.sx(design);
+  const Rect content = canvas.contentBox(borderBox_, style_.padding);
+  const Point origin = canvas.origin();
+
+  int16_t screenX;
+  if (iconRight_) {
+    screenX = static_cast<int16_t>(content.x + content.w - iconPx + origin.x);
+  } else {
+    screenX = static_cast<int16_t>(content.x + origin.x);
+  }
+  const int16_t top =
+      static_cast<int16_t>(content.y + (content.h - iconPx) / 2);
+  const int16_t baselineY = static_cast<int16_t>(top + iconPx + origin.y);
+  icons->draw(canvas.display(), cp, screenX, baselineY, iconPx, labelColor_);
+}

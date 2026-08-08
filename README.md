@@ -76,12 +76,19 @@ page.setContentBackground(t.base100);
 `Storage` mounts the onboard card; pinouts live in `src/storage.h` (default:
 OceanLabz ESP32-S3 N16R8 CAM — SDMMC 1-bit **CLK=39, CMD=38, D0=40**).
 
-Color emoji atlases are **not** baked into flash. Build the full set and copy to the card:
+Color emoji and Lucide icon atlases are **not** baked into flash. Build and copy
+to the card:
 
 ```bash
 python3 tools/noto_emoji_atlas.py --all --format bin -o sd/flow32/emoji.atlas --baked 64
-# Copy the `flow32/` folder onto the SD card root → /flow32/emoji.atlas
+python3 tools/lucide_icon_atlas.py -o sd/flow32/icons.atlas --baked 96
+# Copy the `flow32/` folder onto the SD card root
 ```
 
-Firmware loads the glyph **index** into PSRAM and streams each emoji from the card
-when drawn (`ColorEmojiSd`). Change SD pins only in `src/storage.h`.
+Icons are **alpha-only** and tint with the current text color (same path as
+fonts). Bake at 96px so UI sizes (16–28px) downscale cleanly. Use
+`IconSd::utf8("wifi", buf, cap)` to insert an icon into a text string (PUA
+codepoint), or `Style::setIconSize(n)`.
+
+Firmware loads glyph **indexes** into PSRAM and streams pixels from the card
+when drawn (`ColorEmojiSd` / `IconSd`). Change SD pins only in `src/storage.h`.

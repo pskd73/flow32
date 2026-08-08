@@ -3,7 +3,7 @@
 /**
  * Flow32 — ESP32 SPI TFT UI toolkit.
  *
- * Display / Canvas / Page + composable UI + input hub.
+ * Display / Canvas / Page + composable UI + input hub + App/AppStore.
  * Pass a DisplayPanel from the app (see src/panels.h in this repo).
  */
 
@@ -15,6 +15,8 @@
 #include "AAFont.h"
 #include "ColorEmoji.h"
 #include "ColorEmojiSd.h"
+#include "Icon.h"
+#include "IconSd.h"
 #include "Storage.h"
 #include "StorageConfig.h"
 
@@ -28,6 +30,7 @@
 #include "ui/UIButton.h"
 #include "ui/UIToggle.h"
 #include "ui/UIRange.h"
+#include "ui/UISelect.h"
 #include "ui/UIDebug.h"
 #include "ui/UIArena.h"
 
@@ -36,3 +39,6 @@
 #include "input/KeyTracker.h"
 #include "input/SerialInput.h"
 #include "input/JoystickInput.h"
+
+#include "AppStore.h"
+#include "App.h"

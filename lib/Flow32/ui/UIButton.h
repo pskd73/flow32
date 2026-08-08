@@ -42,12 +42,22 @@ public:
   bool disabled() const { return disabled_; }
   UIButton &disabledBackdrop(uint16_t color);
 
+  /**
+   * Lucide icon beside the label (via Canvas::iconSd).
+   * `side`: "left" (default) or "right".
+   * Size from style().iconSize, else 16 design px.
+   */
+  UIButton &icon(const char *lucideName, const char *side = "left");
+  const char *iconName() const { return iconName_; }
+  bool iconRight() const { return iconRight_; }
+
   /** Label color resolved from color/variant (for child UIText). */
   uint16_t labelColor() const { return labelColor_; }
 
   bool visualAnimating() const override;
 
 protected:
+  void layoutSelf(int16_t x, int16_t y, int16_t availW) override;
   void paintSelf(Canvas &canvas) override;
   void tickSelf(float dt) override;
   bool handleEvent(UIEvent &e) override;
@@ -59,6 +69,8 @@ private:
   PressFn onPress_ = nullptr;
   bool disabled_ = false;
   uint16_t disabledBackdrop_ = 0;
+  const char *iconName_ = nullptr;
+  bool iconRight_ = false;
 
   /** 1 → just tapped; eases to 0. Drives dip + dim. */
   float press_ = 0;
@@ -67,4 +79,5 @@ private:
   void syncLabelColors();
   void syncPressVisual();
   void triggerPressAnim();
+  int16_t iconSlotPx() const;
 };
