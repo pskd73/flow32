@@ -11,6 +11,7 @@
 #include "Storage.h"
 #include "StorageConfig.h"
 #include "input/InputHub.h"
+#include "input/InputSource.h"
 #include "input/SerialInput.h"
 #include "ui/Theme.h"
 #include "ui/UIDebug.h"
@@ -26,6 +27,9 @@
  *     .theme(Theme::FlowTheme())
  *     .storage(SdDefault())
  *     .debugBorders(false)
+ *
+ * Hardware input addons (e.g. JoystickInput) are not config — register them
+ * with Flow32::input() and pass pins at construction.
  */
 class FlowConfig {
 public:
@@ -59,19 +63,25 @@ private:
 /**
  * Fluent runtime — display, shell, apps, storage, frame loop.
  *
+ *   static JoystickInput joy(/* VRx */ 1, /* VRy */ 2, /* SW */ 3);
  *   static Flow32 flow(Panel183());
  *   void setup() {
  *     flow.apps({&home})
  *         .config(FlowConfig{}
  *                   .theme(Theme::FlowTheme())
  *                   .storage(SdDefault()))
+ *         .input(joy)
  *         .begin();
  *   }
  *   void loop() { flow.tick(); }
+ *
+ * Core only sees UIKey events. Hardware sources (joystick, …) are addons
+ * registered via input() with pins at construction.
  */
 class Flow32 : public AppHost {
 public:
-  static constexpr uint8_t kMaxApps = 8;
+  static constexpr uint8_t kMaxApps = 12;
+  static constexpr uint8_t kMaxExtraInputs = 3;
 
   explicit Flow32(const DisplayPanel &panel)
       : panel_(panel),
@@ -116,6 +126,19 @@ public:
 
   Flow32 &config(const FlowConfig &c) {
     config_ = c;
+    return *this;
+  }
+
+  /**
+   * Register an optional InputSource addon (call before begin()).
+   * Serial is always present; sources emit UIKey Left/Right/Up/Down/Select/Back.
+   *
+   *   static JoystickInput joy(pinX, pinY, pinSw);
+   *   flow.input(joy);
+   */
+  Flow32 &input(InputSource &source) {
+    if (extraInputCount_ >= kMaxExtraInputs) return *this;
+    extraInputs_[extraInputCount_++] = &source;
     return *this;
   }
 
@@ -164,6 +187,8 @@ public:
     return setActiveApp(0);
   }
 
+  Storage *storage() override { return storage_; }
+
   bool setActiveApp(uint8_t index) {
     if (index >= appCount_) return false;
     if (begun_ && active_ < appCount_ && apps_[active_]) {
@@ -191,19 +216,19 @@ public:
 
     Serial.printf("Flow32 | theme=%s | Panel %s %dx%d\n", Theme::active().name,
                   panel_.id, panel_.width, panel_.height);
+    Serial.printf("Heap before assets: %u\n", (unsigned)ESP.getFreeHeap());
 
+    pinMode(panel_.pinBl, OUTPUT);
+    digitalWrite(panel_.pinBl, HIGH);
+
+    // no_psram: panel FB is ~134KB. Load icon index before the FB, but defer
+    // emoji until after display — both indexes + FB do not fit together.
     if (config_.hasStorage()) {
       destroyStorage();
       storage_ = new (storageMem_) Storage(config_.storage());
       if (storage_->begin()) {
         storage_->printInfo();
-        if (emoji_.begin(*storage_)) {
-          canvas_.setEmojiSd(&emoji_);
-          emojiReady_ = true;
-        } else {
-          Serial.println(
-              "Emoji atlas missing — copy sd/flow32/emoji.atlas onto the card");
-        }
+#if !defined(FLOW32_SKIP_ICONS)
         if (icons_.begin(*storage_)) {
           canvas_.setIconSd(&icons_);
           iconsReady_ = true;
@@ -211,11 +236,39 @@ public:
           Serial.println(
               "Icon atlas missing — copy sd/flow32/icons.atlas onto the card");
         }
+#else
+        Serial.println("Icons skipped (FLOW32_SKIP_ICONS)");
+#endif
       } else {
         Serial.println("SD mount failed — check StorageConfig pins");
         destroyStorage();
       }
     }
+
+    Serial.printf("Heap after icons: %u\n", (unsigned)ESP.getFreeHeap());
+
+    if (!display_.begin()) {
+      Serial.printf("Display begin failed (heap=%u, need ~%u for FB)\n",
+                    (unsigned)ESP.getFreeHeap(),
+                    (unsigned)display_.bufferBytes());
+      return false;
+    }
+    display_.setBacklight(true);
+    Serial.printf("Display begin ok (heap=%u)\n",
+                  (unsigned)ESP.getFreeHeap());
+
+#if !defined(FLOW32_SKIP_EMOJI)
+    if (storage_ && storage_->ready()) {
+      if (emoji_.begin(*storage_)) {
+        canvas_.setEmojiSd(&emoji_);
+        emojiReady_ = true;
+      } else {
+        Serial.println(
+            "Emoji atlas missing — copy sd/flow32/emoji.atlas onto the card");
+      }
+      Serial.printf("Heap after emoji: %u\n", (unsigned)ESP.getFreeHeap());
+    }
+#endif
 
     for (uint8_t i = 0; i < appCount_; i++) {
       if (apps_[i]) {
@@ -224,17 +277,10 @@ public:
       }
     }
 
-    pinMode(panel_.pinBl, OUTPUT);
-    digitalWrite(panel_.pinBl, HIGH);
-
-    if (!display_.begin()) {
-      Serial.println("Display begin failed");
-      return false;
-    }
-    display_.setBacklight(true);
-    Serial.println("Display begin ok");
-
     input_.add(serial_);
+    for (uint8_t i = 0; i < extraInputCount_; i++) {
+      if (extraInputs_[i]) input_.add(*extraInputs_[i]);
+    }
     input_.begin();
 
     UIDebug::borders = config_.debugBorders();
@@ -291,6 +337,8 @@ private:
   Shell shell_;
   InputHub input_{};
   SerialInput serial_{};
+  InputSource *extraInputs_[kMaxExtraInputs] = {};
+  uint8_t extraInputCount_ = 0;
   FlowConfig config_{};
 
   AppBase *apps_[kMaxApps] = {};

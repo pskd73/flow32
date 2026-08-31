@@ -264,12 +264,20 @@ bool Page::handleDefault(UIEvent &e) {
     if (hasFocus()) return false;
     return focusFirstInViewport();
 
+  // Keep Up/Down and Left/Right as separate directions. Aliasing them made a
+  // 4-way joystick feel like "up/down is left/right" on horizontal UIs.
   case UIKey::Down:
-  case UIKey::Right:
     if (hasFocus()) return moveFocusInViewport(+1);
     return browseScroll(+1);
 
   case UIKey::Up:
+    if (hasFocus()) return moveFocusInViewport(-1);
+    return browseScroll(-1);
+
+  case UIKey::Right:
+    if (hasFocus()) return moveFocusInViewport(+1);
+    return browseScroll(+1);
+
   case UIKey::Left:
     if (hasFocus()) return moveFocusInViewport(-1);
     return browseScroll(-1);
@@ -327,11 +335,57 @@ bool Page::ensureContentBuffer(int16_t h) {
     contentFb_ = (uint16_t *)heap_caps_malloc(
         bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   }
-  if (!contentFb_) return false;
+  if (!contentFb_) {
+    contentFbW_ = 0;
+    contentFbH_ = 0;
+    static bool logged = false;
+    if (!logged) {
+      Serial.printf("Page: content cache OOM (%ux%u) — using panel FB\n",
+                    (unsigned)viewport_.w, (unsigned)h);
+      logged = true;
+    }
+    return false;
+  }
   contentFbW_ = viewport_.w;
   contentFbH_ = h;
   contentDirty_ = true;
   return true;
+}
+
+static void clearPanelRect(Display &display, const Rect &r, uint16_t color) {
+  uint16_t *dst = display.panelBuffer();
+  if (!dst) return;
+  const int16_t dstW = display.width();
+  for (int16_t row = 0; row < r.h; row++) {
+    const int16_t dy = static_cast<int16_t>(r.y + row);
+    if (dy < 0 || dy >= display.height()) continue;
+    uint16_t *drow = dst + (int32_t)dy * dstW + r.x;
+    for (int16_t col = 0; col < r.w; col++) {
+      drow[col] = color;
+    }
+  }
+}
+
+void Page::rasterizeToPanelBuffer(Canvas &canvas) {
+  Display &disp = canvas.display();
+  if (!disp.panelBuffer()) return;
+
+  clearPanelRect(disp, viewport_, contentBg_);
+
+  disp.pushDrawTarget(disp.panelBuffer(), disp.width(), disp.height());
+  canvas.setClip(viewport_);
+  canvas.setOrigin(viewport_.x,
+                   static_cast<int16_t>(viewport_.y - scrollY()));
+  const int16_t h = contentH_ > 0 ? contentH_ : viewport_.h;
+  canvas.setBounds(
+      Rect(viewport_.x, viewport_.y, viewport_.w, h));
+
+  for (uint8_t i = 0; i < rootCount_; i++) {
+    roots_[i]->draw(canvas);
+  }
+
+  disp.popDrawTarget();
+  contentDirty_ = false;
 }
 
 void Page::rasterizeContent(Canvas &canvas) {
@@ -400,11 +454,32 @@ bool Page::drawUI(Canvas &canvas) {
   if (focused_) ensureFocusedVisible();
 
   const int16_t sy = scrollY();
+  int16_t needH = contentH_;
+  if (needH < viewport_.h) needH = viewport_.h;
+
   if (contentDirty_) {
-    rasterizeContent(canvas);
-  } else if (!contentDirty_ && sy == lastPresentedScrollY_ && contentFb_) {
-    return false; // identical frame already on glass
+    if (ensureContentBuffer(needH)) {
+      rasterizeContent(canvas);
+    } else {
+      rasterizeToPanelBuffer(canvas);
+    }
+  } else if (sy != lastPresentedScrollY_) {
+    if (contentFb_) {
+      // Scrolled — blit new rows from cache.
+    } else {
+      rasterizeToPanelBuffer(canvas);
+    }
+  } else if (contentFb_) {
+    return false;
+  } else {
+    return false;
   }
 
-  return presentViewport(canvas.display());
+  if (contentFb_) {
+    return presentViewport(canvas.display());
+  }
+
+  canvas.display().present(viewport_.x, viewport_.y, viewport_.w, viewport_.h);
+  lastPresentedScrollY_ = sy;
+  return true;
 }

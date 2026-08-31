@@ -3,6 +3,7 @@
 #include <SD.h>
 #include <SD_MMC.h>
 #include <SPI.h>
+#include <driver/sdmmc_host.h>
 #include <string.h>
 
 Storage::Storage(const StorageConfig &cfg) : cfg_(cfg) {}
@@ -27,14 +28,36 @@ bool Storage::begin() {
       Serial.println("Storage: SDMMC pins incomplete");
       return false;
     }
+    SD_MMC.end();
+    delay(50);
     if (cfg_.sdmmc1bit || cfg_.pinD1 < 0) {
-      SD_MMC.setPins(cfg_.pinClk, cfg_.pinCmd, cfg_.pinD0);
+      if (!SD_MMC.setPins(cfg_.pinClk, cfg_.pinCmd, cfg_.pinD0)) {
+        Serial.println("Storage: SDMMC setPins failed");
+        return false;
+      }
     } else {
-      SD_MMC.setPins(cfg_.pinClk, cfg_.pinCmd, cfg_.pinD0, cfg_.pinD1,
-                     cfg_.pinD2, cfg_.pinD3);
+      if (!SD_MMC.setPins(cfg_.pinClk, cfg_.pinCmd, cfg_.pinD0, cfg_.pinD1,
+                          cfg_.pinD2, cfg_.pinD3)) {
+        Serial.println("Storage: SDMMC setPins failed");
+        return false;
+      }
     }
-    // mode1bit = true → 1-bit SDMMC
-    if (!SD_MMC.begin(cfg_.mountPoint, cfg_.sdmmc1bit)) {
+    // mode1bit = true → 1-bit SDMMC; retry at probing speed if default fails
+    bool mounted = SD_MMC.begin(cfg_.mountPoint, cfg_.sdmmc1bit);
+    if (!mounted) {
+      Serial.println("Storage: SDMMC default freq failed, retry 400 kHz");
+      SD_MMC.end();
+      delay(50);
+      if (cfg_.sdmmc1bit || cfg_.pinD1 < 0) {
+        SD_MMC.setPins(cfg_.pinClk, cfg_.pinCmd, cfg_.pinD0);
+      } else {
+        SD_MMC.setPins(cfg_.pinClk, cfg_.pinCmd, cfg_.pinD0, cfg_.pinD1,
+                        cfg_.pinD2, cfg_.pinD3);
+      }
+      mounted = SD_MMC.begin(cfg_.mountPoint, cfg_.sdmmc1bit, false,
+                               SDMMC_FREQ_PROBING);
+    }
+    if (!mounted) {
       Serial.printf("Storage: SDMMC mount failed (%s) clk=%d cmd=%d d0=%d\n",
                     cfg_.id, cfg_.pinClk, cfg_.pinCmd, cfg_.pinD0);
       return false;
@@ -79,6 +102,11 @@ bool Storage::exists(const char *path) const {
 File Storage::open(const char *path, const char *mode) const {
   if (!ready_ || !path) return File();
   return (cfg_.bus == SdBus::Spi) ? SD.open(path, mode) : SD_MMC.open(path, mode);
+}
+
+bool Storage::mkdir(const char *path) const {
+  if (!ready_ || !path || !path[0]) return false;
+  return (cfg_.bus == SdBus::Spi) ? SD.mkdir(path) : SD_MMC.mkdir(path);
 }
 
 bool Storage::absPath(const char *rel, char *out, size_t outLen) const {

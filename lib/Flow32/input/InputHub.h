@@ -6,7 +6,7 @@
 
 /**
  * Multiplexes InputSources into a small event queue.
- * Add SerialInput now; JoystickInput later — same hub.
+ * Serial + optional addons (e.g. JoystickInput) — all emit the same UIKeys.
  */
 class InputHub {
 public:

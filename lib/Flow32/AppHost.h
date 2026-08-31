@@ -38,4 +38,7 @@ public:
    * Shell uses this for root Back.
    */
   virtual bool openLauncher() = 0;
+
+  /** Mounted microSD, or nullptr if storage is unavailable. */
+  virtual class Storage *storage() { return nullptr; }
 };

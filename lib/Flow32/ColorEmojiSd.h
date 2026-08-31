@@ -32,8 +32,12 @@ class Display;
 class ColorEmojiSd {
 public:
   static constexpr const char *kDefaultRelPath = "flow32/emoji.atlas";
-  /** Keep a large working set in PSRAM so on-screen emoji don't re-hit SD. */
+  /** LRU slots; on boards without PSRAM use a smaller set. */
+#if defined(BOARD_HAS_PSRAM)
   static constexpr uint8_t kCacheSlots = 100;
+#else
+  static constexpr uint8_t kCacheSlots = 6;
+#endif
 
   ColorEmojiSd() = default;
   ~ColorEmojiSd() { end(); }

@@ -37,7 +37,12 @@ class Display;
 class IconSd {
 public:
   static constexpr const char *kDefaultRelPath = "flow32/icons.atlas";
+#if defined(BOARD_HAS_PSRAM)
   static constexpr uint8_t kCacheSlots = 64;
+#else
+  /** no_psram — one scratch buffer; a single metadata slot is enough. */
+  static constexpr uint8_t kCacheSlots = 1;
+#endif
 
   IconSd() = default;
   ~IconSd() { end(); }
@@ -78,8 +83,6 @@ private:
     uint16_t id = 0;
     bool valid = false;
     uint32_t lastUsed = 0;
-    uint8_t *alpha = nullptr;
-    size_t alphaCap = 0;
     IconGlyph glyph{};
     IconAtlas atlas{};
   };
@@ -95,6 +98,9 @@ private:
 
   char *names_ = nullptr;
   IconGlyph *glyphs_ = nullptr;
+  uint8_t *alphaScratch_ = nullptr;
+  size_t alphaScratchCap_ = 0;
+  uint16_t scratchOwnerId_ = 0xFFFF;
   CacheSlot slots_[kCacheSlots] = {};
   uint32_t useTick_ = 0;
 
