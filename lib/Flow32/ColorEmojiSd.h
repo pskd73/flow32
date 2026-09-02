@@ -48,6 +48,9 @@ public:
   bool begin(Storage &storage, const char *relPath = kDefaultRelPath);
   void end();
 
+  /** Drop cached glyph pixels/alpha (glyph index + SD file stay open). */
+  void clearCache();
+
   bool ready() const { return ready_; }
   uint16_t glyphCount() const { return count_; }
   uint8_t bakedSize() const { return bakedSize_; }
@@ -92,6 +95,11 @@ private:
 
   ColorEmojiGlyph *glyphs_ = nullptr;
   CacheSlot slots_[kCacheSlots];
+  uint16_t ramHandle_ = 0;
+
+  static void ramDrain(void *ctx);
+  void registerRamDrainer();
+  void accountInternalRam();
 
   bool ensureCache(const ColorEmojiGlyph &g, CacheSlot *&out);
   bool loadSlot(CacheSlot &slot, const ColorEmojiGlyph &g);

@@ -15,6 +15,7 @@
 #include "input/SerialInput.h"
 #include "ui/Theme.h"
 #include "ui/UIDebug.h"
+#include "RamManager.h"
 
 #include <initializer_list>
 #include <new>
@@ -63,7 +64,7 @@ private:
 /**
  * Fluent runtime — display, shell, apps, storage, frame loop.
  *
- *   static JoystickInput joy(/* VRx */ 1, /* VRy */ 2, /* SW */ 3);
+ *   static JoystickInput joy(1, 2, 3);  // VRx, VRy, SW
  *   static Flow32 flow(Panel183());
  *   void setup() {
  *     flow.apps({&home})
@@ -189,21 +190,57 @@ public:
 
   Storage *storage() override { return storage_; }
 
+  bool ramEnsureProfile(RamManager::Profile profile, const char *requester,
+                        RamManager::Priority drainUpTo) override {
+    if (!requester) {
+      AppBase *a = activeApp();
+      requester = (a && a->appName()[0]) ? a->appName() : "flow";
+    }
+    return RamManager::ensureProfile(profile, requester, drainUpTo);
+  }
+
+  bool ramEnsureNeed(RamManager::Need need, const char *requester,
+                     RamManager::Priority drainUpTo) override {
+    if (!requester) {
+      AppBase *a = activeApp();
+      requester = (a && a->appName()[0]) ? a->appName() : "flow";
+    }
+    return RamManager::ensureNeed(need, requester, drainUpTo);
+  }
+
+  RamManager::Snapshot ramSnapshot() const override {
+    return RamManager::snapshot();
+  }
+
+  void ramLog(const char *tag) const override { RamManager::log(tag); }
+
   bool setActiveApp(uint8_t index) {
     if (index >= appCount_) return false;
     if (begun_ && active_ < appCount_ && apps_[active_]) {
       apps_[active_]->close();
     }
     active_ = index;
-    shell_.setApp(apps_[active_]);
-    if (begun_ && apps_[active_]) {
-      apps_[active_]->open();
+    AppBase *next = apps_[active_];
+    shell_.setApp(next);
+    if (next && next->appName()[0]) {
+      RamManager::setForeground(next->appName());
+    } else {
+      RamManager::setForeground("");
+    }
+    if (begun_ && next) {
+      if (!next->open()) {
+        Serial.printf("App: open failed (%s)\n",
+                      next->appName()[0] ? next->appName() : "?");
+      }
     }
     return true;
   }
 
   bool begin() {
     if (begun_) return true;
+
+    RamManager::init();
+    RamManager::setDrainedNotify(&Flow32::ramDrainedNotify, this);
 
     Serial.begin(115200);
     delay(200);
@@ -288,6 +325,9 @@ public:
     shell_.setPanel(panelRect());
     if (AppBase *a = activeApp()) {
       shell_.setApp(a);
+      if (a->appName()[0]) {
+        RamManager::setForeground(a->appName());
+      }
       if (!a->open()) {
         Serial.println("App: open failed — using defaults");
       }
@@ -314,6 +354,18 @@ public:
   }
 
 private:
+  static void ramDrainedNotify(const char *requester, void *ctx) {
+    auto *self = static_cast<Flow32 *>(ctx);
+    AppBase *a = self->activeApp();
+    if (!a) return;
+    const char *name = a->appName();
+    if (requester && requester[0] && name && name[0] &&
+        strcmp(name, requester) != 0) {
+      return;
+    }
+    a->onRamDrained();
+  }
+
   void destroyStorage() {
     if (!storage_) return;
     storage_->~Storage();

@@ -45,3 +45,4 @@
 #include "App.h"
 #include "Shell.h"
 #include "FlowRuntime.h"
+#include "RamManager.h"

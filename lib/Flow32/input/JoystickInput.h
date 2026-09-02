@@ -10,7 +10,7 @@
  *
  * Not part of FlowConfig — construct with pins and register on the runtime:
  *
- *   static JoystickInput joy(/* VRx */ 1, /* VRy */ 2, /* SW */ 3);
+ *   static JoystickInput joy(1, 2, 3);  // VRx, VRy, SW
  *   flow.apps({...}).input(joy).begin();
  *
  * Optional: call initAdcEarly(pinX, pinY) from setup() before display boot
