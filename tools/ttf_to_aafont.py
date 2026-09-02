@@ -7,7 +7,18 @@ import argparse
 import os
 import sys
 
-from PIL import Image, ImageDraw, ImageFont
+try:
+    from PIL import Image, ImageDraw, ImageFont
+except ModuleNotFoundError:
+    Image = ImageDraw = ImageFont = None
+
+
+def require_pillow() -> None:
+    if Image is None:
+        raise SystemExit(
+            "Pillow is required to generate fonts. Install it with "
+            "`python3 -m pip install Pillow`."
+        )
 
 
 def pack_4bpp(alphas: list[int]) -> bytes:
@@ -81,6 +92,7 @@ def generate(
     first: int = 0x20,
     last: int = 0xFF,
 ):
+    require_pillow()
     font = ImageFont.truetype(ttf, px)
     ascent, descent = font.getmetrics()
     y_advance = ascent + descent + 2
@@ -115,7 +127,7 @@ def generate(
     )
     lines.append(f"// Codepoints U+{first:04X}..U+{last:04X} (Latin-1 block)")
     lines.append("#pragma once")
-    lines.append('#include "AAFont.h"')
+    lines.append('#include <flow32/graphics/AAFont.h>')
     lines.append("")
     lines.append(f"const uint8_t {symbol}Bitmaps[] PROGMEM = {{")
     for i in range(0, len(bitmaps), 16):

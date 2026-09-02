@@ -1,0 +1,246 @@
+{
+  "schema": 1,
+  "common_files": [
+    "README.md",
+    "UPSTREAM.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "docs/ADAPTERS.md",
+    "docs/ARCHITECTURE.md",
+    "docs/BUILD_PROFILES.md",
+    "docs/CONFIGURATION.md",
+    "library.json",
+    "library.properties",
+    "keywords.txt",
+    "src/flow32/README.md"
+  ],
+  "profiles": {
+    "display-only": {
+      "description": "Generic RGB565 framebuffer, drawing primitives, and transport interface.",
+      "modules": ["display"]
+    },
+    "st77xx-display": {
+      "description": "Generic display plus the optional Adafruit ST7735/ST7789 transport.",
+      "modules": ["display-st77xx"]
+    },
+    "retained-ui": {
+      "description": "Retained pages, layout, widgets, focus, scrolling, and rendering with no concrete hardware adapter.",
+      "modules": ["retained-ui"]
+    },
+    "full": {
+      "description": "Normal Flow32 installation: runtime, retained UI, adapters, inputs, and assets.",
+      "modules": ["runtime"]
+    }
+  },
+  "modules": {
+    "foundation": {
+      "description": "Configuration, errors, geometry, styles, and normalized UI events.",
+      "requires": [],
+      "public_headers": ["Flow32Config.h", "flow32/core/FlowError.h"],
+      "files": [
+        "src/Flow32BuildConfig.h",
+        "src/Flow32Config.h",
+        "src/flow32/core/FlowError.cpp",
+        "src/flow32/core/FlowError.h",
+        "src/flow32/graphics/Rect.h",
+        "src/flow32/ui/Style.h",
+        "src/flow32/ui/UIEvent.h"
+      ]
+    },
+    "display": {
+      "description": "Hardware-neutral RGB565 framebuffer, rasterization, fonts, and transport boundary.",
+      "requires": ["foundation"],
+      "public_headers": [
+        "Flow32Config.h",
+        "flow32/graphics/Display.h",
+        "flow32/graphics/DisplayPanel.h",
+        "flow32/graphics/DisplayTransport.h"
+      ],
+      "files": [
+        "src/flow32/graphics/AAFont.cpp",
+        "src/flow32/graphics/AAFont.h",
+        "src/flow32/graphics/Display.cpp",
+        "src/flow32/graphics/Display.h",
+        "src/flow32/graphics/DisplayPanel.h",
+        "src/flow32/graphics/DisplayTransport.h",
+        "src/flow32/graphics/FontPack.h",
+        "examples/CustomTransport/CustomTransport.ino"
+      ]
+    },
+    "display-st77xx": {
+      "description": "Application-configured Adafruit ST7735/ST7789 SPI transport.",
+      "requires": ["display"],
+      "public_headers": ["flow32/graphics/St77xxTransport.h"],
+      "files": [
+        "src/flow32/graphics/St77xxTransport.cpp",
+        "src/flow32/graphics/St77xxTransport.h"
+      ]
+    },
+    "asset-store": {
+      "description": "Application-owned Arduino filesystem boundary.",
+      "requires": [],
+      "public_headers": ["flow32/assets/AssetStore.h"],
+      "files": ["src/flow32/assets/AssetStore.h"]
+    },
+    "input-core": {
+      "description": "Allocation-free normalized input queue and source interface.",
+      "requires": ["foundation"],
+      "public_headers": [
+        "flow32/input/InputHub.h",
+        "flow32/input/InputSource.h"
+      ],
+      "files": [
+        "src/flow32/input/InputHub.cpp",
+        "src/flow32/input/InputHub.h",
+        "src/flow32/input/InputSource.cpp",
+        "src/flow32/input/InputSource.h"
+      ]
+    },
+    "input-key-tracker": {
+      "description": "Stable-state button debounce and key repeat tracking.",
+      "requires": ["input-core"],
+      "public_headers": [],
+      "files": [
+        "src/flow32/input/ButtonDebouncer.h",
+        "src/flow32/input/KeyTracker.cpp",
+        "src/flow32/input/KeyTracker.h"
+      ]
+    },
+    "input-buttons": {
+      "description": "Debounced digital navigation buttons.",
+      "requires": ["input-key-tracker"],
+      "public_headers": ["flow32/input/ButtonInput.h"],
+      "files": [
+        "src/flow32/input/ButtonInput.cpp",
+        "src/flow32/input/ButtonInput.h"
+      ]
+    },
+    "input-joystick": {
+      "description": "Hysteretic analog joystick with debounced optional buttons.",
+      "requires": ["input-key-tracker"],
+      "public_headers": ["flow32/input/JoystickInput.h"],
+      "files": [
+        "src/flow32/input/JoystickInput.cpp",
+        "src/flow32/input/JoystickInput.h"
+      ]
+    },
+    "input-serial": {
+      "description": "Serial navigation adapter; the application owns Serial.begin().",
+      "requires": ["input-key-tracker"],
+      "public_headers": ["flow32/input/SerialInput.h"],
+      "files": [
+        "src/flow32/input/SerialInput.cpp",
+        "src/flow32/input/SerialInput.h"
+      ]
+    },
+    "storage": {
+      "description": "Optional explicit SD and SD_MMC AssetStore implementation.",
+      "requires": ["asset-store"],
+      "public_headers": ["flow32/assets/Storage.h"],
+      "files": [
+        "src/flow32/assets/Storage.cpp",
+        "src/flow32/assets/Storage.h",
+        "src/flow32/assets/StorageConfig.h"
+      ]
+    },
+    "icons": {
+      "description": "Tintable icon drawing and bounds-checked streamed icon atlas.",
+      "requires": ["display", "asset-store"],
+      "public_headers": [
+        "flow32/assets/Icon.h",
+        "flow32/assets/StreamedIconAtlas.h"
+      ],
+      "files": [
+        "src/flow32/assets/Icon.cpp",
+        "src/flow32/assets/Icon.h",
+        "src/flow32/assets/StreamedIconAtlas.cpp",
+        "src/flow32/assets/StreamedIconAtlas.h",
+        "licenses/Lucide.txt"
+      ]
+    },
+    "emoji": {
+      "description": "Color emoji drawing and bounds-checked streamed emoji atlas.",
+      "requires": ["display", "asset-store"],
+      "public_headers": [
+        "flow32/assets/ColorEmoji.h",
+        "flow32/assets/StreamedEmojiAtlas.h"
+      ],
+      "files": [
+        "src/flow32/assets/ColorEmoji.cpp",
+        "src/flow32/assets/ColorEmoji.h",
+        "src/flow32/assets/StreamedEmojiAtlas.cpp",
+        "src/flow32/assets/StreamedEmojiAtlas.h",
+        "licenses/NotoColorEmoji.txt"
+      ]
+    },
+    "retained-ui": {
+      "description": "Canvas, retained layout tree, controls, pages, focus, scrolling, and themes.",
+      "requires": ["display", "icons", "emoji", "input-core"],
+      "public_headers": [
+        "flow32/graphics/Canvas.h",
+        "flow32/ui/Page.h",
+        "flow32/ui/Theme.h",
+        "flow32/ui/UIDiv.h",
+        "flow32/ui/UIText.h",
+        "flow32/ui/UIImage.h",
+        "flow32/ui/UIButton.h",
+        "flow32/ui/UIToggle.h",
+        "flow32/ui/UIRange.h",
+        "flow32/ui/UISelect.h"
+      ],
+      "files": [
+        "src/flow32/graphics/Canvas.cpp",
+        "src/flow32/graphics/Canvas.h",
+        "src/flow32/ui/Page.cpp",
+        "src/flow32/ui/Page.h",
+        "src/flow32/ui/Theme.cpp",
+        "src/flow32/ui/Theme.h",
+        "src/flow32/ui/UIArena.h",
+        "src/flow32/ui/UIButton.cpp",
+        "src/flow32/ui/UIButton.h",
+        "src/flow32/ui/UIDebug.cpp",
+        "src/flow32/ui/UIDebug.h",
+        "src/flow32/ui/UIDiv.cpp",
+        "src/flow32/ui/UIDiv.h",
+        "src/flow32/ui/UIImage.cpp",
+        "src/flow32/ui/UIImage.h",
+        "src/flow32/ui/UINode.cpp",
+        "src/flow32/ui/UINode.h",
+        "src/flow32/ui/UIRange.cpp",
+        "src/flow32/ui/UIRange.h",
+        "src/flow32/ui/UISelect.cpp",
+        "src/flow32/ui/UISelect.h",
+        "src/flow32/ui/UIText.cpp",
+        "src/flow32/ui/UIText.h",
+        "src/flow32/ui/UIToggle.cpp",
+        "src/flow32/ui/UIToggle.h"
+      ]
+    },
+    "runtime": {
+      "description": "Normal umbrella, app host, Shell, optional persistence, and retained runtime.",
+      "requires": [
+        "retained-ui",
+        "display-st77xx",
+        "storage",
+        "input-buttons",
+        "input-joystick",
+        "input-serial"
+      ],
+      "public_headers": ["Flow32.h"],
+      "files": [
+        "src/Flow32.h",
+        "src/flow32/Aliases.h",
+        "src/flow32/core/App.h",
+        "src/flow32/core/AppHost.h",
+        "src/flow32/core/AppStore.h",
+        "src/flow32/core/FlowRuntime.h",
+        "src/flow32/core/Shell.h",
+        "examples/Assets/Assets.ino",
+        "examples/BasicUI/BasicUI.ino",
+        "examples/Buttons/Buttons.ino",
+        "examples/Joystick/Joystick.ino",
+        "examples/Showcase/Showcase.ino"
+      ]
+    }
+  }
+}

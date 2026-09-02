@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "profile": "retained-ui",
+  "modules": [],
+  "defines": {
+    "FLOW32_UI_ARENA_BYTES": 6144,
+    "FLOW32_INPUT_QUEUE_SIZE": 12
+  }
+}

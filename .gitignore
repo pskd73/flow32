@@ -1,46 +1,7 @@
-# PlatformIO
-.pio
-.pioenvs
-.piolibdeps
-.clangpioenvs
-.clangpiolibdeps
-
-# Build artifacts
-*.bin
-*.elf
-*.map
-*.hex
-*.o
-*.a
-*.d
-
-# IDE / editor
+.pio/
 .vscode/
-.idea/
-*.swp
-*.swo
-*~
-.DS_Store
-
-# Python (font tools)
-__pycache__/
-*.py[cod]
-.venv/
-venv/
-.env
 tools/.emoji_cache/
 tools/.lucide_cache/
-tools/fonts/
-
-# Secrets / local env
-.env.*
-!.env.example
-
-# OS
-Thumbs.db
-Desktop.ini
-
-# Debug / logs
-*.log
-compile_commands.json
-.cache/
+__pycache__/
+*.pyc
+*.pack

@@ -25,8 +25,8 @@ import tarfile
 import tempfile
 import urllib.request
 
-# Curated set for the Flow32 demo (Lucide names).
-DEFAULT_ICONS = [
+# Small starter set (Lucide names). Pass --icons or --all for another set.
+STARTER_ICONS = [
     "house",
     "flame",
     "droplet",
@@ -82,6 +82,16 @@ def find_rsvg() -> str:
             "On macOS: brew install librsvg"
         )
     return path
+
+
+def require_pillow() -> None:
+    try:
+        import PIL  # noqa: F401
+    except ModuleNotFoundError:
+        raise SystemExit(
+            "Pillow is required to generate icon atlases. Install it with "
+            "`python3 -m pip install Pillow`."
+        )
 
 
 def ensure_icons_dir(cache_root: str, icons_dir: str | None) -> str:
@@ -272,13 +282,15 @@ def main():
     ap.add_argument(
         "--icons",
         default=None,
-        help="comma-separated Lucide names (default: curated demo set)",
+        help="comma-separated Lucide names (default: small starter set)",
     )
     ap.add_argument("--cache", default=None, help="download / PNG cache directory")
     args = ap.parse_args()
 
     if args.baked < 16 or args.baked > 256:
         raise SystemExit("--baked must be 16..256")
+
+    require_pillow()
 
     cache = args.cache or os.path.join(os.path.dirname(__file__), ".lucide_cache")
     icons_dir = ensure_icons_dir(cache, args.icons_dir)
@@ -289,7 +301,7 @@ def main():
     elif args.icons:
         names = [n.strip() for n in args.icons.split(",") if n.strip()]
     else:
-        names = list(DEFAULT_ICONS)
+        names = list(STARTER_ICONS)
 
     png_cache = os.path.join(cache, f"png_{args.baked}")
     glyphs, name_blob, alpha_blob = build_glyphs(

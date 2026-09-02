@@ -1,0 +1,23 @@
+{
+  "name": "Flow32",
+  "version": "0.4.0",
+  "description": "Small retained-mode UI framework with explicit hardware transports for ESP32 Arduino projects.",
+  "keywords": ["esp32", "display", "retained-ui", "framebuffer", "st7789", "st7735"],
+  "authors": [{"name": "Flow32 contributors"}],
+  "license": "NOASSERTION",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pskd73/flow32.git"
+  },
+  "frameworks": ["arduino"],
+  "platforms": ["espressif32"],
+  "dependencies": {
+    "adafruit/Adafruit GFX Library": "^1.11.11",
+    "adafruit/Adafruit ST7735 and ST7789 Library": "^1.10.4",
+    "adafruit/Adafruit BusIO": "^1.16.2"
+  },
+  "headers": ["Flow32.h"],
+  "build": {
+    "libArchive": true
+  }
+}

@@ -17,11 +17,22 @@ import struct
 import sys
 import urllib.request
 
-from PIL import Image
+try:
+    from PIL import Image
+except ModuleNotFoundError:
+    Image = None
 
 
-# Packed emoji set (single codepoints; no ZWJ sequences yet).
-# Faces + a few UI symbols used by the demo.
+def require_pillow() -> None:
+    if Image is None:
+        raise SystemExit(
+            "Pillow is required to generate emoji atlases. Install it with "
+            "`python3 -m pip install Pillow`."
+        )
+
+
+# Starter emoji set (single codepoints; no ZWJ sequences yet).
+# Faces plus a few broadly useful UI symbols.
 DEFAULT_FACES = [
     (0x1F600, "grinning face"),
     (0x1F603, "grinning face with big eyes"),
@@ -73,7 +84,7 @@ DEFAULT_FACES = [
     (0x1F621, "pouting face"),
     (0x1F92C, "face with symbols on mouth"),
     (0x1F97A, "pleading face"),
-    # Demo / UI symbols
+    # UI symbols
     (0x1F3E0, "house"),
     (0x1F525, "fire"),
     (0x1F4A7, "droplet"),
@@ -233,7 +244,7 @@ def write_header(out_path: str, baked: int, glyphs, pixel_blob, alpha_blob):
     lines.append("// Source: https://github.com/googlefonts/noto-emoji")
     lines.append("// Firmware downscales; never upscales past bakedSize.")
     lines.append("#pragma once")
-    lines.append('#include "ColorEmoji.h"')
+    lines.append('#include <flow32/assets/ColorEmoji.h>')
     lines.append("")
     lines.append(f"static const uint16_t {symbol}Pixels[] PROGMEM = {{")
     for i in range(0, len(pixel_blob), 12):
@@ -282,7 +293,7 @@ def write_header(out_path: str, baked: int, glyphs, pixel_blob, alpha_blob):
 
 
 def write_binary(out_path: str, baked: int, glyphs, pixel_blob, alpha_blob):
-    """Flow32 SD atlas: magic F32E, little-endian (see ColorEmojiSd.h)."""
+    """Flow32 streamed atlas: magic F32E (see StreamedEmojiAtlas.h)."""
     pix_bytes = len(pixel_blob) * 2
     alpha_bytes = len(alpha_blob)
     os.makedirs(os.path.dirname(os.path.abspath(out_path)) or ".", exist_ok=True)
@@ -314,6 +325,7 @@ def write_binary(out_path: str, baked: int, glyphs, pixel_blob, alpha_blob):
 
 def generate(out_path: str, baked: int, src_px: int, cache_dir: str, faces=None,
              fmt: str = "header"):
+    require_pillow()
     glyphs, pixel_blob, alpha_blob = build_glyphs(baked, src_px, cache_dir, faces)
     if not glyphs:
         raise SystemExit("no glyphs packed")
