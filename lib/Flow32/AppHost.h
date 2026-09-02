@@ -1,5 +1,7 @@
 #pragma once
 
+#include "RamManager.h"
+
 #include <stdint.h>
 
 /**
@@ -38,4 +40,21 @@ public:
    * Shell uses this for root Back.
    */
   virtual bool openLauncher() = 0;
+
+  /** Mounted microSD, or nullptr if storage is unavailable. */
+  virtual class Storage *storage() { return nullptr; }
+
+  /** Drain Cache plus background App/Session holders until RAM meets `profile`. */
+  virtual bool ramEnsureProfile(RamManager::Profile profile,
+                                const char *requester = nullptr,
+                                RamManager::Priority drainUpTo =
+                                    RamManager::Priority::Session) = 0;
+
+  virtual bool ramEnsureNeed(RamManager::Need need,
+                             const char *requester = nullptr,
+                             RamManager::Priority drainUpTo =
+                                 RamManager::Priority::Session) = 0;
+
+  virtual RamManager::Snapshot ramSnapshot() const = 0;
+  virtual void ramLog(const char *tag) const = 0;
 };

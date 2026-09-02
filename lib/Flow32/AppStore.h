@@ -54,19 +54,23 @@ public:
     }
     ready_ = true;
 
-    const size_t len = prefs_.getBytesLength(kBlobKey);
-    if (len == sizeof(S)) {
-      S loaded{};
-      if (prefs_.getBytes(kBlobKey, &loaded, sizeof(S)) == sizeof(S)) {
-        state_ = loaded;
-        Serial.printf("AppStore[%s]: loaded %u bytes from NVS\n", ns_,
-                      (unsigned)sizeof(S));
+    if (prefs_.isKey(kBlobKey)) {
+      const size_t len = prefs_.getBytesLength(kBlobKey);
+      if (len == sizeof(S)) {
+        S loaded{};
+        if (prefs_.getBytes(kBlobKey, &loaded, sizeof(S)) == sizeof(S)) {
+          state_ = loaded;
+          Serial.printf("AppStore[%s]: loaded %u bytes from NVS\n", ns_,
+                        (unsigned)sizeof(S));
+        }
+      } else if (len > 0) {
+        Serial.printf("AppStore[%s]: ignore blob size %u (want %u)\n", ns_,
+                      (unsigned)len, (unsigned)sizeof(S));
       }
-    } else if (len > 0) {
-      Serial.printf("AppStore[%s]: ignore blob size %u (want %u)\n", ns_,
-                    (unsigned)len, (unsigned)sizeof(S));
     } else {
-      Serial.printf("AppStore[%s]: no saved state — using defaults\n", ns_);
+      prefs_.putBytes(kBlobKey, &state_, sizeof(S));
+      Serial.printf("AppStore[%s]: seeded default state (%u bytes)\n", ns_,
+                    (unsigned)sizeof(S));
     }
 
     dirty_ = true; // first UI paint

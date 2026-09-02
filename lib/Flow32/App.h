@@ -69,6 +69,18 @@ public:
   /** Called when registered with Flow32 / AppHost. */
   virtual void onAttach(AppHost &host) { host_ = &host; }
 
+  /**
+   * Internal RAM needed before open() (TLS, large buffers, …).
+   * Override in network-heavy apps; default is no extra requirement.
+   */
+  virtual RamManager::Profile ramProfile() const { return {}; }
+
+  /**
+   * After RamManager drained holders for this app. Regain lazily on next use —
+   * do not allocate here (that can undo the ensure that just ran).
+   */
+  virtual void onRamDrained() {}
+
   AppHost *host() const { return host_; }
 
 protected:
@@ -186,6 +198,10 @@ public:
   }
 
   bool open() override {
+    if (host_ && !host_->ramEnsureProfile(ramProfile(), appName())) {
+      host_->ramLog("open-fail");
+      return false;
+    }
     if (!begin(nvsNamespace(), saveDebounceMs())) return false;
     stack_[0] = NavEntry{};
     depth_ = 1;
@@ -198,6 +214,7 @@ public:
   void close() override {
     if (!store_.ready()) return;
     end();
+    RamManager::releaseAllForOwner(appName());
   }
 
   void frame(Canvas &canvas, InputHub &input, float dt) override {

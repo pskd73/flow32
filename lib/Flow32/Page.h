@@ -125,6 +125,7 @@ private:
   bool moveFocusInViewport(int8_t direction);
   bool browseScroll(int8_t direction);
   bool ensureContentBuffer(int16_t h);
+  void rasterizeToPanelBuffer(Canvas &canvas);
   void rasterizeContent(Canvas &canvas);
   void blitViewport(Display &display);
   bool presentViewport(Display &display);

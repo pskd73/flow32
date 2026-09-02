@@ -26,6 +26,9 @@ public:
   bool exists(const char *path) const;
   File open(const char *path, const char *mode = FILE_READ) const;
 
+  /** Create a directory (card-rooted path, e.g. "/data"). */
+  bool mkdir(const char *path) const;
+
   /**
    * Build an SD/SD_MMC path for open()/exists().
    * Arduino mounts at mountPoint (e.g. "/sdcard") but open() paths are

@@ -32,8 +32,12 @@ class Display;
 class ColorEmojiSd {
 public:
   static constexpr const char *kDefaultRelPath = "flow32/emoji.atlas";
-  /** Keep a large working set in PSRAM so on-screen emoji don't re-hit SD. */
+  /** LRU slots; on boards without PSRAM use a smaller set. */
+#if defined(BOARD_HAS_PSRAM)
   static constexpr uint8_t kCacheSlots = 100;
+#else
+  static constexpr uint8_t kCacheSlots = 6;
+#endif
 
   ColorEmojiSd() = default;
   ~ColorEmojiSd() { end(); }
@@ -43,6 +47,9 @@ public:
 
   bool begin(Storage &storage, const char *relPath = kDefaultRelPath);
   void end();
+
+  /** Drop cached glyph pixels/alpha (glyph index + SD file stay open). */
+  void clearCache();
 
   bool ready() const { return ready_; }
   uint16_t glyphCount() const { return count_; }
@@ -88,6 +95,11 @@ private:
 
   ColorEmojiGlyph *glyphs_ = nullptr;
   CacheSlot slots_[kCacheSlots];
+  uint16_t ramHandle_ = 0;
+
+  static void ramDrain(void *ctx);
+  void registerRamDrainer();
+  void accountInternalRam();
 
   bool ensureCache(const ColorEmojiGlyph &g, CacheSlot *&out);
   bool loadSlot(CacheSlot &slot, const ColorEmojiGlyph &g);

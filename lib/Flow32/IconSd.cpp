@@ -123,6 +123,22 @@ bool IconSd::begin(Storage &storage, const char *relPath) {
                                             kGlyphRecBytes);
   bakedSize_ = baked;
   count_ = count;
+
+  size_t maxAlphaBytes = 0;
+  for (uint16_t i = 0; i < count_; i++) {
+    const size_t pix =
+        static_cast<size_t>(glyphs_[i].width) * glyphs_[i].height;
+    const size_t ab = (pix + 1) / 2;
+    if (ab > maxAlphaBytes) maxAlphaBytes = ab;
+  }
+  if (maxAlphaBytes > 0) {
+    alphaScratch_ = static_cast<uint8_t *>(allocPreferPsram(maxAlphaBytes));
+    alphaScratchCap_ = alphaScratch_ ? maxAlphaBytes : 0;
+    if (!alphaScratch_) {
+      Serial.println("IconSd: OOM alpha scratch");
+    }
+  }
+
   storage_ = &storage;
   ready_ = true;
 
@@ -136,13 +152,14 @@ bool IconSd::begin(Storage &storage, const char *relPath) {
 
 void IconSd::end() {
   for (uint8_t i = 0; i < kCacheSlots; i++) {
-    if (slots_[i].alpha) {
-      free(slots_[i].alpha);
-      slots_[i].alpha = nullptr;
-    }
-    slots_[i].alphaCap = 0;
     slots_[i].valid = false;
   }
+  if (alphaScratch_) {
+    free(alphaScratch_);
+    alphaScratch_ = nullptr;
+  }
+  alphaScratchCap_ = 0;
+  scratchOwnerId_ = 0xFFFF;
   if (file_) file_.close();
   if (names_) {
     free(names_);
@@ -244,12 +261,7 @@ bool IconSd::loadSlot(CacheSlot &slot, const IconGlyph &g) {
   const size_t pixCount = static_cast<size_t>(g.width) * g.height;
   const size_t alphaBytes = (pixCount + 1) / 2;
 
-  if (alphaBytes > slot.alphaCap) {
-    if (slot.alpha) free(slot.alpha);
-    slot.alpha = static_cast<uint8_t *>(allocPreferPsram(alphaBytes));
-    slot.alphaCap = slot.alpha ? alphaBytes : 0;
-  }
-  if (!slot.alpha) {
+  if (!alphaScratch_ || alphaBytes > alphaScratchCap_) {
     Serial.println("IconSd: OOM glyph cache");
     slot.valid = false;
     return false;
@@ -260,31 +272,41 @@ bool IconSd::loadSlot(CacheSlot &slot, const IconGlyph &g) {
     slot.valid = false;
     return false;
   }
-  if (file_.read(slot.alpha, alphaBytes) != static_cast<int>(alphaBytes)) {
+  if (file_.read(alphaScratch_, alphaBytes) != static_cast<int>(alphaBytes)) {
     slot.valid = false;
     return false;
   }
 
   slot.glyph = g;
   slot.glyph.alphaOffset = 0;
-  slot.atlas.alpha = slot.alpha;
+  slot.atlas.alpha = alphaScratch_;
   slot.atlas.names = names_;
   slot.atlas.glyphs = &slot.glyph;
   slot.atlas.count = 1;
   slot.atlas.bakedSize = bakedSize_;
   slot.id = g.id;
   slot.valid = true;
+  scratchOwnerId_ = g.id;
+  for (uint8_t i = 0; i < kCacheSlots; i++) {
+    if (&slots_[i] != &slot) {
+      slots_[i].valid = false;
+    }
+  }
   return true;
 }
 
 bool IconSd::ensureCache(const IconGlyph &g, CacheSlot *&out) {
   int idx = findSlot(g.id);
-  if (idx < 0) {
-    idx = pickVictim();
-    if (!loadSlot(slots_[idx], g)) {
-      out = nullptr;
-      return false;
-    }
+  if (idx >= 0 && scratchOwnerId_ == g.id) {
+    slots_[idx].lastUsed = ++useTick_;
+    out = &slots_[idx];
+    return true;
+  }
+
+  idx = pickVictim();
+  if (!loadSlot(slots_[idx], g)) {
+    out = nullptr;
+    return false;
   }
   slots_[idx].lastUsed = ++useTick_;
   out = &slots_[idx];

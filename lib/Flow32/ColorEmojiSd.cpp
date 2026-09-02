@@ -1,7 +1,9 @@
 #include "ColorEmojiSd.h"
 #include "Display.h"
+#include "RamManager.h"
 
 #include <esp_heap_caps.h>
+#include <soc/soc_memory_types.h>
 #include <string.h>
 
 namespace {
@@ -130,10 +132,56 @@ bool ColorEmojiSd::begin(Storage &storage, const char *relPath) {
       count, baked, path_, static_cast<unsigned>(indexKb),
       (pixelsBytes + alphaBytes) / (1024.0f * 1024.0f),
       static_cast<unsigned>(kCacheSlots));
+  registerRamDrainer();
   return true;
 }
 
+void ColorEmojiSd::accountInternalRam() {
+  if (!ramHandle_) return;
+  size_t n = 0;
+  for (uint8_t i = 0; i < kCacheSlots; i++) {
+    const CacheSlot &s = slots_[i];
+    if (s.pixels && esp_ptr_internal(s.pixels)) n += s.pixCap;
+    if (s.alpha && esp_ptr_internal(s.alpha)) n += s.alphaCap;
+  }
+  RamManager::setHolderBytes(ramHandle_, n);
+}
+
+void ColorEmojiSd::clearCache() {
+  for (uint8_t i = 0; i < kCacheSlots; i++) {
+    CacheSlot &s = slots_[i];
+    if (s.pixels) {
+      free(s.pixels);
+      s.pixels = nullptr;
+    }
+    if (s.alpha) {
+      free(s.alpha);
+      s.alpha = nullptr;
+    }
+    s.pixCap = 0;
+    s.alphaCap = 0;
+    s.valid = false;
+    s.cp = 0;
+  }
+  accountInternalRam();
+}
+
+void ColorEmojiSd::ramDrain(void *ctx) {
+  static_cast<ColorEmojiSd *>(ctx)->clearCache();
+}
+
+void ColorEmojiSd::registerRamDrainer() {
+  if (ramHandle_) return;
+  ramHandle_ =
+      RamManager::registerDrainer("flow.emoji.cache", RamManager::Priority::Cache,
+                                 &ColorEmojiSd::ramDrain, this);
+}
+
 void ColorEmojiSd::end() {
+  if (ramHandle_) {
+    RamManager::unregisterHolder(ramHandle_);
+    ramHandle_ = 0;
+  }
   ready_ = false;
   storage_ = nullptr;
   path_[0] = '\0';
@@ -151,18 +199,7 @@ void ColorEmojiSd::end() {
     free(glyphs_);
     glyphs_ = nullptr;
   }
-  for (uint8_t i = 0; i < kCacheSlots; i++) {
-    CacheSlot &s = slots_[i];
-    if (s.pixels) {
-      free(s.pixels);
-      s.pixels = nullptr;
-    }
-    if (s.alpha) {
-      free(s.alpha);
-      s.alpha = nullptr;
-    }
-    s = CacheSlot{};
-  }
+  clearCache();
 }
 
 int ColorEmojiSd::findIndex(uint32_t cp) const {
@@ -235,6 +272,7 @@ bool ColorEmojiSd::loadSlot(CacheSlot &slot, const ColorEmojiGlyph &g) {
   if (!slot.pixels || !slot.alpha) {
     Serial.println("ColorEmojiSd: OOM glyph cache");
     slot.valid = false;
+    accountInternalRam();
     return false;
   }
 
@@ -243,19 +281,23 @@ bool ColorEmojiSd::loadSlot(CacheSlot &slot, const ColorEmojiGlyph &g) {
   const uint32_t aOff = alphaFileOff_ + g.alphaOffset;
   if (!file_.seek(pixOff)) {
     slot.valid = false;
+    accountInternalRam();
     return false;
   }
   if (file_.read(reinterpret_cast<uint8_t *>(slot.pixels), pixBytes) !=
       static_cast<int>(pixBytes)) {
     slot.valid = false;
+    accountInternalRam();
     return false;
   }
   if (!file_.seek(aOff)) {
     slot.valid = false;
+    accountInternalRam();
     return false;
   }
   if (file_.read(slot.alpha, alphaBytes) != static_cast<int>(alphaBytes)) {
     slot.valid = false;
+    accountInternalRam();
     return false;
   }
 
@@ -269,6 +311,7 @@ bool ColorEmojiSd::loadSlot(CacheSlot &slot, const ColorEmojiGlyph &g) {
   slot.atlas.bakedSize = bakedSize_;
   slot.cp = g.codepoint;
   slot.valid = true;
+  accountInternalRam();
   return true;
 }
 

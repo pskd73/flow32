@@ -6,6 +6,9 @@
 #include <math.h>
 #include <string.h>
 
+namespace {
+} // namespace
+
 Display::Display(const DisplayPanel &panel)
     : Adafruit_GFX(panel.width, panel.height), panel_(panel),
       targetW_(panel.width), targetH_(panel.height) {}
@@ -180,7 +183,8 @@ void Display::present(int16_t x, int16_t y, int16_t w, int16_t h) {
   tft_->startWrite();
   if (x == 0 && w == panel_.width) {
     tft_->setAddrWindow(0, panel_.panelYOffset + y, (uint16_t)w, (uint16_t)h);
-    tft_->writePixels(fbPanel_ + (int32_t)y * panel_.width, (uint32_t)w * h);
+    tft_->writePixels(fbPanel_ + (int32_t)y * panel_.width,
+                    (uint32_t)w * (uint32_t)h);
   } else {
     for (int16_t row = 0; row < h; row++) {
       tft_->setAddrWindow(x, panel_.panelYOffset + y + row, (uint16_t)w, 1);
@@ -212,7 +216,7 @@ void Display::presentBuffer(const uint16_t *src, int16_t x, int16_t y, int16_t w
   tft_->startWrite();
   if (x == 0 && w == panel_.width) {
     tft_->setAddrWindow(0, panel_.panelYOffset + y, (uint16_t)w, (uint16_t)h);
-    tft_->writePixels(const_cast<uint16_t *>(src), (uint32_t)w * h);
+    tft_->writePixels(const_cast<uint16_t *>(src), (uint32_t)w * (uint32_t)h);
   } else {
     for (int16_t row = 0; row < h; row++) {
       tft_->setAddrWindow(x, panel_.panelYOffset + y + row, (uint16_t)w, 1);

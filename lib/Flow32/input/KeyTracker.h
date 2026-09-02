@@ -5,7 +5,7 @@
 
 /**
  * Converts pressed/released digital keys into Down / Hold / Up events.
- * Shared by SerialInput (press/release protocol) and future JoystickInput.
+ * Shared by SerialInput, JoystickInput, and other press/release sources.
  */
 class KeyTracker {
 public:
