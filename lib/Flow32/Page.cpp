@@ -308,11 +308,11 @@ bool Page::dispatch(UIEvent &e) {
 void Page::layoutUI(Canvas &canvas) {
   uiScale_ = canvas.uiScale();
   UINode::setLayoutHost(&canvas);
+  UINode::setLayoutAvailH(viewport_.h);
   int16_t maxBottom = 0;
   for (uint8_t i = 0; i < rootCount_; i++) {
     roots_[i]->layout(0, 0, viewport_.w);
-    const Rect &b = roots_[i]->borderBox();
-    const int16_t bottom = static_cast<int16_t>(b.y + b.h);
+    const int16_t bottom = roots_[i]->subtreeBottom();
     if (bottom > maxBottom) maxBottom = bottom;
   }
   UINode::setLayoutHost(nullptr);

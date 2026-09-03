@@ -20,6 +20,8 @@ void InputHub::poll(uint32_t nowMs) {
 }
 
 void InputHub::push(const UIEvent &e) {
+  // Counted before the full check: a dropped event is still activity.
+  eventCount_++;
   const uint8_t next = static_cast<uint8_t>((tail_ + 1) % kMaxQueue);
   if (next == head_) return; // drop if full
   queue_[tail_] = e;

@@ -20,6 +20,13 @@ public:
   bool empty() const { return head_ == tail_; }
   bool pop(UIEvent &out);
 
+  /**
+   * Monotonic count of events pushed, for detecting activity without
+   * consuming the queue. Sample it either side of poll() — anything that
+   * re-queues events (the shell does, for Back) also bumps it.
+   */
+  uint32_t eventCount() const { return eventCount_; }
+
   /** Drain queue into target.dispatch (call after page.syncFocus). */
   template <typename Target> void dispatchTo(Target &target) {
     UIEvent e;
@@ -36,4 +43,5 @@ private:
   UIEvent queue_[kMaxQueue];
   uint8_t head_ = 0;
   uint8_t tail_ = 0;
+  uint32_t eventCount_ = 0;
 };

@@ -17,6 +17,7 @@
 #include "ColorEmojiSd.h"
 #include "Icon.h"
 #include "IconSd.h"
+#include "IdleEyes.h"
 #include "Storage.h"
 #include "StorageConfig.h"
 

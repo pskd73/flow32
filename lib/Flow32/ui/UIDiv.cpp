@@ -114,7 +114,8 @@ void UIDiv::layoutSelf(int16_t x, int16_t y, int16_t availW) {
 
   // An explicit height must be known before the children are placed: they
   // resolve their own percentages against this content box, and alignV can
-  // only distribute slack it can measure.
+  // only distribute slack it can measure. The avail height is static, so it
+  // has to be put back before returning or siblings measure against us.
   const bool autoH = style_.height.unit == Unit::Auto;
   const int16_t outerAvailH = layoutAvailH();
   int16_t h = autoH ? 0 : resolveStyleHeight();
@@ -141,8 +142,7 @@ void UIDiv::layoutSelf(int16_t x, int16_t y, int16_t availW) {
       flowCount++;
     }
 
-    int16_t h;
-    if (style_.height.unit == Unit::Auto) {
+    if (autoH) {
       h = static_cast<int16_t>(cy - y + pad.bottom);
       if (flowCount == 0) {
         h = static_cast<int16_t>(pad.top + pad.bottom);
@@ -151,8 +151,6 @@ void UIDiv::layoutSelf(int16_t x, int16_t y, int16_t availW) {
         h = static_cast<int16_t>(pad.top + pad.bottom);
       }
     } else {
-      h = host ? host->resolveLen(style_.height, 0)
-               : style_.height.resolve(0, s);
       const int16_t innerH =
           static_cast<int16_t>(h - pad.top - pad.bottom);
       const int16_t contentH = static_cast<int16_t>(cy - contentTop);
@@ -173,6 +171,7 @@ void UIDiv::layoutSelf(int16_t x, int16_t y, int16_t availW) {
     layoutAbsoluteChildren(children_, childCount_, contentLeft, contentTop,
                            innerW > 0 ? innerW : 0, innerH > 0 ? innerH : 0,
                            host, s);
+    setLayoutAvailH(outerAvailH);
     return;
   }
 
@@ -225,8 +224,7 @@ void UIDiv::layoutSelf(int16_t x, int16_t y, int16_t availW) {
     rowY = static_cast<int16_t>(maxBottom + gap);
   }
 
-  int16_t h;
-  if (style_.height.unit == Unit::Auto) {
+  if (autoH) {
     h = static_cast<int16_t>(maxBottom - y + pad.bottom);
     if (flowCount == 0) {
       h = static_cast<int16_t>(pad.top + pad.bottom);
@@ -234,9 +232,6 @@ void UIDiv::layoutSelf(int16_t x, int16_t y, int16_t availW) {
     if (h < pad.top + pad.bottom) {
       h = static_cast<int16_t>(pad.top + pad.bottom);
     }
-  } else {
-    h = host ? host->resolveLen(style_.height, 0)
-             : style_.height.resolve(0, s);
   }
 
   borderBox_ = Rect(x, y, w, h);
@@ -244,6 +239,7 @@ void UIDiv::layoutSelf(int16_t x, int16_t y, int16_t availW) {
   layoutAbsoluteChildren(children_, childCount_, contentLeft, contentTop,
                          innerW > 0 ? innerW : 0, innerH > 0 ? innerH : 0, host,
                          s);
+  setLayoutAvailH(outerAvailH);
 }
 
 void UIDiv::paintSelf(Canvas & /*canvas*/) {

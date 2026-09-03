@@ -6,6 +6,7 @@
 #include "Display.h"
 #include "DisplayPanel.h"
 #include "IconSd.h"
+#include "IdleEyes.h"
 #include "Rect.h"
 #include "Shell.h"
 #include "Storage.h"
@@ -28,6 +29,7 @@
  *     .theme(Theme::FlowTheme())
  *     .storage(SdDefault())
  *     .debugBorders(false)
+ *     .idleEyes(30)
  *
  * Hardware input addons (e.g. JoystickInput) are not config — register them
  * with Flow32::input() and pass pins at construction.
@@ -47,11 +49,20 @@ public:
     debugBorders_ = v;
     return *this;
   }
+  /**
+   * Paint the idle eyes after this many seconds with no input. 0 (default)
+   * disables it, so existing callers are unaffected.
+   */
+  FlowConfig &idleEyes(uint32_t seconds) {
+    idleEyesSec_ = seconds;
+    return *this;
+  }
 
   const Theme::ThemeTokens *theme() const { return theme_; }
   bool hasStorage() const { return hasStorage_; }
   const StorageConfig &storage() const { return storage_; }
   bool debugBorders() const { return debugBorders_; }
+  uint32_t idleEyesSec() const { return idleEyesSec_; }
 
 private:
   friend class Flow32;
@@ -59,6 +70,7 @@ private:
   StorageConfig storage_{};
   bool hasStorage_ = false;
   bool debugBorders_ = false;
+  uint32_t idleEyesSec_ = 0;
 };
 
 /**
@@ -335,6 +347,7 @@ public:
 
     begun_ = true;
     lastMs_ = millis();
+    lastInputMs_ = lastMs_;
     shell_.frame(canvas_, input_, 0.04f);
     return true;
   }
@@ -344,7 +357,34 @@ public:
     display_.setBacklight(true);
 
     const uint32_t now = millis();
+    // Sampled around poll() so only real source events count as activity —
+    // the shell re-queues events later in the frame and would look like input.
+    const uint32_t eventsBefore = input_.eventCount();
     input_.poll(now);
+    const bool activity = input_.eventCount() != eventsBefore;
+    if (activity) lastInputMs_ = now;
+
+    AppBase *const app = activeApp();
+    const bool mayIdle = !app || app->allowsIdle();
+
+    if (idleShowing_) {
+      if (!activity && mayIdle) {
+        if (now - lastMs_ < 16) return;
+        const float dt = (now - lastMs_) / 1000.0f;
+        lastMs_ = now;
+        idleEyes_.frame(canvas_, panelRect(), dt);
+        return;
+      }
+      wakeFromIdle();
+    }
+
+    const uint32_t idleMs = config_.idleEyesSec() * 1000u;
+    if (idleMs && mayIdle && (now - lastInputMs_) >= idleMs) {
+      idleShowing_ = true;
+      idleEyes_.reset();
+      lastMs_ = now;
+      return;
+    }
 
     if (now - lastMs_ < 16) return;
     const float dt = (now - lastMs_) / 1000.0f;
@@ -354,6 +394,19 @@ public:
   }
 
 private:
+  /**
+   * The press that wakes the device only wakes it — dropping the queue stops
+   * the app also acting on it. The app kept running while the eyes were up, so
+   * it has no pending redraw of its own and has to be told the panel is dirty.
+   */
+  void wakeFromIdle() {
+    idleShowing_ = false;
+    UIEvent drop;
+    while (input_.pop(drop)) {
+    }
+    if (AppBase *a = activeApp()) a->invalidateContent();
+  }
+
   static void ramDrainedNotify(const char *requester, void *ctx) {
     auto *self = static_cast<Flow32 *>(ctx);
     AppBase *a = self->activeApp();
@@ -406,4 +459,8 @@ private:
   bool iconsReady_ = false;
   bool begun_ = false;
   uint32_t lastMs_ = 0;
+
+  IdleEyes idleEyes_{};
+  uint32_t lastInputMs_ = 0;
+  bool idleShowing_ = false;
 };

@@ -50,6 +50,20 @@ public:
   virtual void clearContentFocus() {}
 
   /**
+   * Drop cached content so the next frame repaints the whole viewport. Needed
+   * when something outside the app has painted over it — the idle screensaver
+   * does, and apps that only present on change would otherwise stay hidden.
+   */
+  virtual void invalidateContent() {}
+
+  /**
+   * False while the app has to stay on screen, which suppresses the idle
+   * screensaver. For a live call the audio survives being covered, but the
+   * status and controls the user is watching would not.
+   */
+  virtual bool allowsIdle() const { return true; }
+
+  /**
    * Optional app-level key handling (before Page). Return true to consume.
    * Used e.g. by the launcher carousel for Left/Right.
    */
@@ -144,6 +158,8 @@ public:
 
   Page &page() { return page_; }
   const Page &page() const { return page_; }
+
+  void invalidateContent() override { page_.invalidateContent(); }
 
   void setPanel(const Rect &panel) override { panel_ = panel; }
 
