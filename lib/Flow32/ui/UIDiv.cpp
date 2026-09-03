@@ -112,6 +112,16 @@ void UIDiv::layoutSelf(int16_t x, int16_t y, int16_t availW) {
   const int16_t contentTop = static_cast<int16_t>(y + pad.top);
   const uint8_t cols = clampColumns(style_.columns);
 
+  // An explicit height must be known before the children are placed: they
+  // resolve their own percentages against this content box, and alignV can
+  // only distribute slack it can measure.
+  const bool autoH = style_.height.unit == Unit::Auto;
+  const int16_t outerAvailH = layoutAvailH();
+  int16_t h = autoH ? 0 : resolveStyleHeight();
+  if (!autoH) {
+    setLayoutAvailH(static_cast<int16_t>(h - pad.top - pad.bottom));
+  }
+
   if (cols == 1) {
     // --- Column stack (in-flow children only) ---
     int16_t cy = contentTop;

@@ -26,9 +26,9 @@ struct Profile {
 
 enum class Need : uint8_t {
   None,
-  /** ~40 KB contiguous — TLS handshake (WebSocket / HTTPS). */
+  /** ~28 KB contiguous — TLS handshake (WebSocket / HTTPS). */
   SslHandshake,
-  /** ~32 KB — short HTTPS client (signed URL, etc.). */
+  /** ~20 KB — short HTTPS client (signed URL, etc.). */
   HttpClient,
 };
 

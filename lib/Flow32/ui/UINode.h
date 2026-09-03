@@ -86,6 +86,27 @@ public:
   static Canvas *layoutHost() { return layoutHost_; }
   static float layoutScale() { return layoutScale_; }
 
+  /**
+   * Height that a percentage `style().height` resolves against.
+   *
+   * `layout()` only carries a width, so without this a percentage height has
+   * no parent to measure and collapses to zero — which also silently disables
+   * `alignV`, since UIDiv can only distribute vertical slack it knows about.
+   * Page seeds it with the viewport; containers narrow it to their own content
+   * box while placing children.
+   */
+  static void setLayoutAvailH(int16_t h) { layoutAvailH_ = h > 0 ? h : 0; }
+  static int16_t layoutAvailH() { return layoutAvailH_; }
+
+  /**
+   * Deepest bottom edge in this subtree.
+   *
+   * The scroll extent has to come from here rather than from a root's own box:
+   * a root pinned to the viewport height reports one screen even when its
+   * children run past the fold.
+   */
+  int16_t subtreeBottom() const;
+
 protected:
   Style style_{};
   UIAnim anim_{};
@@ -101,6 +122,9 @@ protected:
   Rect borderBox_{};
   bool canHaveChildren_ = false;
 
+  /** Explicit (non-Auto) `style().height` resolved against layoutAvailH(). */
+  int16_t resolveStyleHeight() const;
+
   virtual void layoutSelf(int16_t x, int16_t y, int16_t availW) = 0;
   virtual void paintSelf(Canvas &canvas) = 0;
   /** Per-frame motion before onTick_ / children. */
@@ -115,4 +139,5 @@ protected:
 private:
   static Canvas *layoutHost_;
   static float layoutScale_;
+  static int16_t layoutAvailH_;
 };

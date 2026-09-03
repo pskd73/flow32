@@ -131,7 +131,7 @@ bool drainOne(Priority upTo, const char* requester) {
     if (!e.drain && !(e.ownsPtr && e.ptr)) continue;
     if (e.priority > upTo) continue;
     if (gDrainEpoch && e.drainEpoch == gDrainEpoch) continue;
-    if (!e.ownsPtr && e.bytes == 0) continue;
+    if (!e.ownsPtr && e.bytes == 0 && !e.drain) continue;
     if (e.priority == Priority::App || e.priority == Priority::Session) {
       if (ownerIs(e.owner, requester) || ownerIs(e.owner, gForeground)) {
         continue;
@@ -182,12 +182,14 @@ Profile profileFor(Need need) {
   Profile p;
   switch (need) {
   case Need::SslHandshake:
-    p.minInternalContig = 40000;
-    p.minInternalFree = 52000;
+    // mbedTLS needs a contiguous internal block; the HTTPS signed-URL fetch
+    // leaves ~34KB contig, so anything above that can never be satisfied.
+    p.minInternalContig = 28672;
+    p.minInternalFree = 0;
     break;
   case Need::HttpClient:
-    p.minInternalContig = 32000;
-    p.minInternalFree = 45000;
+    p.minInternalContig = 20480;
+    p.minInternalFree = 0;
     break;
   default:
     break;
