@@ -4,10 +4,26 @@
 
 Canvas *UINode::layoutHost_ = nullptr;
 float UINode::layoutScale_ = 1.0f;
+int16_t UINode::layoutAvailH_ = 0;
 
 void UINode::setLayoutHost(Canvas *c) {
   layoutHost_ = c;
   layoutScale_ = c ? c->uiScale() : 1.0f;
+}
+
+int16_t UINode::resolveStyleHeight() const {
+  return layoutHost_ ? layoutHost_->resolveLen(style_.height, layoutAvailH_)
+                     : style_.height.resolve(layoutAvailH_, layoutScale_);
+}
+
+int16_t UINode::subtreeBottom() const {
+  int16_t bottom = static_cast<int16_t>(borderBox_.y + borderBox_.h);
+  for (uint8_t i = 0; i < childCount_; i++) {
+    if (!children_[i]) continue;
+    const int16_t childBottom = children_[i]->subtreeBottom();
+    if (childBottom > bottom) bottom = childBottom;
+  }
+  return bottom;
 }
 
 UINode &UINode::add(UINode &child) {
