@@ -76,6 +76,10 @@ public:
   /** Right-side status icons (Lucide names); Shell draws them. */
   virtual uint8_t shellStatusCount() const { return 0; }
   virtual const char *shellStatusIcon(uint8_t /*i*/) const { return nullptr; }
+  /**
+   * Optional per-icon tint for the status cluster. 0 = Theme baseContent.
+   */
+  virtual uint16_t shellStatusColor(uint8_t /*i*/) const { return 0; }
 
   /** Called once after SD emoji/icon atlases are ready (may be null). */
   virtual void onAssets(IconSd * /*icons*/, ColorEmojiSd * /*emoji*/) {}

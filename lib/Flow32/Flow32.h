@@ -27,6 +27,7 @@
 #include "ui/UINode.h"
 #include "ui/UIDiv.h"
 #include "ui/UIText.h"
+#include "ui/UIIcon.h"
 #include "ui/UIImage.h"
 #include "ui/UIButton.h"
 #include "ui/UIToggle.h"

@@ -232,6 +232,18 @@ void UIDiv::layoutSelf(int16_t x, int16_t y, int16_t availW) {
     if (h < pad.top + pad.bottom) {
       h = static_cast<int16_t>(pad.top + pad.bottom);
     }
+  } else {
+    // Match column layout: distribute slack in the content box for alignV.
+    const int16_t innerH =
+        static_cast<int16_t>(h - pad.top - pad.bottom);
+    const int16_t contentH = static_cast<int16_t>(maxBottom - contentTop);
+    const int16_t oy = axisAlign(innerH, contentH, style_.alignV);
+    if (oy != 0 && flowCount > 0) {
+      for (uint8_t fi = 0; fi < flowCount; fi++) {
+        const Rect &cb = flow[fi]->borderBox();
+        flow[fi]->layout(cb.x, static_cast<int16_t>(cb.y + oy), cellW);
+      }
+    }
   }
 
   borderBox_ = Rect(x, y, w, h);

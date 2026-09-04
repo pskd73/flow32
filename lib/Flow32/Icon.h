@@ -29,11 +29,16 @@ struct IconAtlas {
 
 class Display;
 
+struct Rect;
+
 namespace IconDraw {
 
 /** First / last inclusive PUA codepoint used for icons. */
 constexpr uint32_t kCpBase = 0xE000u;
 constexpr uint32_t kCpLast = 0xF8FFu;
+
+/** Box placement for chrome icons (callers never touch glyph baseline). */
+enum class Align : uint8_t { Start, Center, End };
 
 inline bool isIconCp(uint32_t cp) {
   return cp >= kCpBase && cp <= kCpLast;
@@ -49,6 +54,27 @@ inline uint32_t cpFromId(uint16_t id) { return kCpBase + id; }
 size_t encodeUtf8(uint32_t cp, char *buf, size_t cap);
 
 int16_t advance(const IconGlyph &g, uint16_t bakedSize, int16_t drawPx);
+
+/**
+ * Distance from glyph top to baseline at `drawPx`. Lucide atlas yOffset is
+ * typically ≈ -baked*7/8 (not -baked), so treating baseline as top+drawPx
+ * shifts icons down by ~1/8.
+ */
+int16_t ascent(const IconGlyph &g, uint16_t bakedSize, int16_t drawPx);
+
+/** Baseline Y so the glyph's top lands at `top`. */
+inline int16_t baselineFromTop(const IconGlyph &g, uint16_t bakedSize,
+                               int16_t top, int16_t drawPx) {
+  return static_cast<int16_t>(top + ascent(g, bakedSize, drawPx));
+}
+
+/**
+ * Place a `drawPx` square inside `box` (content coords). Returns screen-space
+ * top-left of that square (after adding origin). Used by IconSd::drawInBox.
+ */
+void boxTopLeft(const Rect &box, int16_t drawPx, Align alignH, Align alignV,
+                int16_t originX, int16_t originY, int16_t &screenLeft,
+                int16_t &screenTop);
 
 /**
  * Tint glyph with `color` (RGB565), blending 4bpp coverage via Display::blendPixel.

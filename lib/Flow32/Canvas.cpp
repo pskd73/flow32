@@ -490,38 +490,37 @@ DrawResult Canvas::drawTextInBox(int16_t boxX, int16_t boxY, int16_t boxW,
     }
 
     if (paint) {
-      // Only raise the baseline when this line actually contains icon/emoji
-      // media. Default emojiDrawPx_ (~font size) must not pull plain text down.
-      //
-      // Atlas glyphs use yOffset ≈ -(baked*7/8), so height extends ~1/8 below
-      // the baseline. Sitting on emojiDrawPx_ leaves that sliver hanging out of
-      // the line box and optically low — align baseline to -yOffset instead.
+      // Plain text sits on the font baseline. Icon/emoji media are placed so a
+      // drawPx square is vertically centered in the line box — same rule as
+      // IconSd::drawInBox — never the Body font baseline for a smaller icon.
       int16_t baselineOffset = fontBaselineY;
-      if (emojiDrawPx_ > fontBaselineY) {
-        const char *q = lineStart;
-        while (q < lineEnd) {
-          uint32_t cp = 0;
-          const char *before = q;
-          if (!ColorEmojiDraw::nextUtf8(q, cp) || q > lineEnd) break;
-          if (before == q) break;
-          if (!isMediaCp(cp)) continue;
+      const char *q = lineStart;
+      while (q < lineEnd) {
+        uint32_t cp = 0;
+        const char *before = q;
+        if (!ColorEmojiDraw::nextUtf8(q, cp) || q > lineEnd) break;
+        if (before == q) break;
+        if (!isMediaCp(cp)) continue;
 
-          int16_t mediaBase =
-              static_cast<int16_t>((emojiDrawPx_ * 7) / 8); // atlas default
-          if (IconDraw::isIconCp(cp) && iconSd_ && iconSd_->ready()) {
-            const IconGlyph *g = iconSd_->findByCp(cp);
-            const uint16_t baked = iconSd_->bakedSize();
-            if (g && baked > 0 && g->yOffset < 0) {
-              mediaBase = static_cast<int16_t>(
-                  (-static_cast<int32_t>(g->yOffset) * emojiDrawPx_ +
-                   baked / 2) /
-                  baked);
-            }
+        if (IconDraw::isIconCp(cp) && iconSd_ && iconSd_->ready() &&
+            emojiDrawPx_ > 0) {
+          const IconGlyph *g = iconSd_->findByCp(cp);
+          const int16_t topOff =
+              static_cast<int16_t>((rowH - emojiDrawPx_) / 2);
+          if (g) {
+            baselineOffset = static_cast<int16_t>(
+                topOff + IconDraw::ascent(*g, iconSd_->bakedSize(),
+                                          emojiDrawPx_));
+          } else {
+            baselineOffset =
+                static_cast<int16_t>(topOff + (emojiDrawPx_ * 7) / 8);
           }
-          if (mediaBase < 1) mediaBase = emojiDrawPx_;
-          baselineOffset = mediaBase;
-          break;
+        } else if (emojiDrawPx_ > fontBaselineY) {
+          baselineOffset =
+              static_cast<int16_t>((emojiDrawPx_ * 7) / 8);
+          if (baselineOffset < 1) baselineOffset = emojiDrawPx_;
         }
+        break;
       }
       int16_t screenX, screenY;
       contentToScreen(drawX, static_cast<int16_t>(penY + baselineOffset),

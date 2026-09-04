@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Icon.h"
+#include "Rect.h"
 #include "Storage.h"
 
 class Display;
@@ -77,6 +78,22 @@ public:
 
   bool draw(Display &display, uint32_t cp, int16_t baselineX, int16_t baselineY,
             int16_t drawPx, uint16_t color);
+
+  /**
+   * Draw Lucide icon into a content-space box. Vertically/horizontally places a
+   * `drawPx` square, then converts atlas baseline internally — callers never
+   * pass baseline coordinates.
+   */
+  bool drawInBox(Display &display, uint32_t cp, const Rect &box, int16_t originX,
+                 int16_t originY, int16_t drawPx, uint16_t color,
+                 IconDraw::Align alignH = IconDraw::Align::Start,
+                 IconDraw::Align alignV = IconDraw::Align::Center);
+
+  bool drawInBox(Display &display, const char *name, const Rect &box,
+                 int16_t originX, int16_t originY, int16_t drawPx,
+                 uint16_t color,
+                 IconDraw::Align alignH = IconDraw::Align::Start,
+                 IconDraw::Align alignV = IconDraw::Align::Center);
 
 private:
   struct CacheSlot {

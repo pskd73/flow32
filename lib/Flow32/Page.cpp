@@ -1,6 +1,7 @@
 #include "Page.h"
 #include "ui/UIButton.h"
 #include "ui/UIDiv.h"
+#include "ui/UIIcon.h"
 #include "ui/UIImage.h"
 #include "ui/UINode.h"
 #include "ui/UIText.h"
@@ -106,6 +107,10 @@ UISelect &Page::select() { return arena_.create<UISelect>(); }
 UISelectOption &Page::selectOption() { return arena_.create<UISelectOption>(); }
 
 UIText &Page::text(const char *s) { return arena_.create<UIText>(s); }
+
+UIIcon &Page::icon(const char *lucideName) {
+  return arena_.create<UIIcon>(lucideName);
+}
 
 UIImage &Page::image(const uint16_t *pixels, int16_t srcW, int16_t srcH) {
   return arena_.create<UIImage>(pixels, srcW, srcH);

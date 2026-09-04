@@ -1,6 +1,7 @@
 #include "UIButton.h"
 #include "UIText.h"
 #include "../Canvas.h"
+#include "../Icon.h"
 #include "../IconSd.h"
 
 #include <math.h>
@@ -206,23 +207,14 @@ void UIButton::paintSelf(Canvas &canvas) {
   if (!iconName_ || !iconName_[0]) return;
   IconSd *icons = canvas.iconSd();
   if (!icons || !icons->ready()) return;
-  const uint32_t cp = icons->codepoint(iconName_);
-  if (!cp) return;
 
   const int16_t design =
       style_.iconSize > 0 ? static_cast<int16_t>(style_.iconSize) : kIconDesign;
   const int16_t iconPx = canvas.sx(design);
   const Rect content = canvas.contentBox(borderBox_, style_.padding);
   const Point origin = canvas.origin();
-
-  int16_t screenX;
-  if (iconRight_) {
-    screenX = static_cast<int16_t>(content.x + content.w - iconPx + origin.x);
-  } else {
-    screenX = static_cast<int16_t>(content.x + origin.x);
-  }
-  const int16_t top =
-      static_cast<int16_t>(content.y + (content.h - iconPx) / 2);
-  const int16_t baselineY = static_cast<int16_t>(top + iconPx + origin.y);
-  icons->draw(canvas.display(), cp, screenX, baselineY, iconPx, labelColor_);
+  const IconDraw::Align h =
+      iconRight_ ? IconDraw::Align::End : IconDraw::Align::Start;
+  icons->drawInBox(canvas.display(), iconName_, content, origin.x, origin.y,
+                   iconPx, labelColor_, h, IconDraw::Align::Center);
 }

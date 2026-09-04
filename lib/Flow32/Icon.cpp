@@ -1,5 +1,6 @@
 #include "Icon.h"
 #include "Display.h"
+#include "Rect.h"
 
 namespace IconDraw {
 
@@ -36,6 +37,38 @@ int16_t advance(const IconGlyph &g, uint16_t bakedSize, int16_t drawPx) {
   if (drawPx < 1) drawPx = 1;
   return static_cast<int16_t>(
       (static_cast<int32_t>(g.xAdvance) * drawPx + bakedSize / 2) / bakedSize);
+}
+
+int16_t ascent(const IconGlyph &g, uint16_t bakedSize, int16_t drawPx) {
+  if (drawPx < 1) drawPx = 1;
+  int16_t a = static_cast<int16_t>((drawPx * 7) / 8); // atlas default
+  if (bakedSize > 0 && g.yOffset < 0) {
+    a = static_cast<int16_t>(
+        (-static_cast<int32_t>(g.yOffset) * drawPx + bakedSize / 2) /
+        bakedSize);
+  }
+  if (a < 1) a = drawPx;
+  return a;
+}
+
+void boxTopLeft(const Rect &box, int16_t drawPx, Align alignH, Align alignV,
+                int16_t originX, int16_t originY, int16_t &screenLeft,
+                int16_t &screenTop) {
+  if (drawPx < 1) drawPx = 1;
+  int16_t left = box.x;
+  if (alignH == Align::Center) {
+    left = static_cast<int16_t>(box.x + (box.w - drawPx) / 2);
+  } else if (alignH == Align::End) {
+    left = static_cast<int16_t>(box.x + box.w - drawPx);
+  }
+  int16_t top = box.y;
+  if (alignV == Align::Center) {
+    top = static_cast<int16_t>(box.y + (box.h - drawPx) / 2);
+  } else if (alignV == Align::End) {
+    top = static_cast<int16_t>(box.y + box.h - drawPx);
+  }
+  screenLeft = static_cast<int16_t>(left + originX);
+  screenTop = static_cast<int16_t>(top + originY);
 }
 
 static uint8_t readAlpha4(const IconAtlas &atlas, const IconGlyph &g, int16_t x,

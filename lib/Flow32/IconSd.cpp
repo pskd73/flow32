@@ -323,3 +323,31 @@ bool IconSd::draw(Display &display, uint32_t cp, int16_t baselineX,
                  drawPx, color);
   return true;
 }
+
+bool IconSd::drawInBox(Display &display, uint32_t cp, const Rect &box,
+                       int16_t originX, int16_t originY, int16_t drawPx,
+                       uint16_t color, IconDraw::Align alignH,
+                       IconDraw::Align alignV) {
+  if (!ready_ || box.w < 1 || box.h < 1) return false;
+  if (drawPx < 1) drawPx = 1;
+  const IconGlyph *g = findByCp(cp);
+  if (!g) return false;
+
+  int16_t screenLeft = 0;
+  int16_t screenTop = 0;
+  IconDraw::boxTopLeft(box, drawPx, alignH, alignV, originX, originY,
+                       screenLeft, screenTop);
+  const int16_t baselineY =
+      IconDraw::baselineFromTop(*g, bakedSize_, screenTop, drawPx);
+  return draw(display, cp, screenLeft, baselineY, drawPx, color);
+}
+
+bool IconSd::drawInBox(Display &display, const char *name, const Rect &box,
+                       int16_t originX, int16_t originY, int16_t drawPx,
+                       uint16_t color, IconDraw::Align alignH,
+                       IconDraw::Align alignV) {
+  const uint32_t cp = codepoint(name);
+  if (!cp) return false;
+  return drawInBox(display, cp, box, originX, originY, drawPx, color, alignH,
+                   alignV);
+}

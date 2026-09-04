@@ -29,7 +29,6 @@ public:
   /** Extra inset for curved panel edges. */
   static constexpr int16_t kNavPadLeft = 28;
   static constexpr int16_t kNavPadRight = 28;
-  static constexpr int16_t kNavPadY = 6;
   static constexpr int16_t kStatusIcon = 14;
   static constexpr uint8_t kMaxStatus = 4;
 
@@ -85,7 +84,14 @@ private:
   AppBase *app_ = nullptr;
   int16_t navH_ = kNavHeight;
   Page navPage_;
-  char statusLine_[48] = {};
+  /** Lucide "circle" → solid disc; other names → UIIcon via lucide name. */
+  struct StatusSlot {
+    const char *name = nullptr;
+    uint16_t color = 0;
+    bool solid = false;
+  };
+  StatusSlot statusSlots_[kMaxStatus] = {};
+  uint8_t statusSlotCount_ = 0;
 
   /**
    * Consume Back+Down from the queue (apps never see it).
@@ -118,28 +124,30 @@ private:
     if (host_) host_->openLauncher();
   }
 
-  void buildStatusLine(IconSd *icons) {
-    statusLine_[0] = '\0';
-    if (!app_ || !icons || !icons->ready()) return;
+  void buildStatusSlots(IconSd *icons) {
+    statusSlotCount_ = 0;
+    if (!app_) return;
 
     uint8_t n = app_->shellStatusCount();
     if (n > kMaxStatus) n = kMaxStatus;
 
-    size_t pos = 0;
     for (uint8_t i = 0; i < n; i++) {
       const char *name = app_->shellStatusIcon(i);
       if (!name || !name[0]) continue;
-      char tmp[8];
-      const size_t got = icons->utf8(name, tmp, sizeof(tmp));
-      if (!got) continue;
-      if (pos > 0 && pos + 1 < sizeof(statusLine_)) {
-        statusLine_[pos++] = ' '; // tight gap between icons
-        statusLine_[pos] = '\0';
+      StatusSlot &slot = statusSlots_[statusSlotCount_];
+      slot = StatusSlot{};
+      uint16_t c = app_->shellStatusColor(i);
+      slot.color = c ? c : Theme::active().baseContent;
+      // "circle" = solid health/status disc (outline Lucide circle looks hollow).
+      if (!strcmp(name, "circle")) {
+        slot.solid = true;
+        statusSlotCount_++;
+        continue;
       }
-      if (pos + got >= sizeof(statusLine_)) break;
-      memcpy(statusLine_ + pos, tmp, got);
-      pos += got;
-      statusLine_[pos] = '\0';
+      if (!icons || !icons->ready()) continue;
+      if (!icons->findByName(name)) continue;
+      slot.name = name;
+      statusSlotCount_++;
     }
   }
 
@@ -149,21 +157,58 @@ private:
     navPage_.setViewport(nav);
     navPage_.setContentBackground(th.base200);
 
-    buildStatusLine(canvas.iconSd());
+    buildStatusSlots(canvas.iconSd());
 
     const char *title = app_->shellTitle();
     if (!title) title = "";
 
     navPage_.beginUI();
 
-    // [ title | icons→ ] with H padding for curved edges
+    auto &statusArea =
+        navPage_.div().style(Style()
+                                 .setWidth(Length::Pct(100))
+                                 .setHeight(Length::Px(navH_)));
+    {
+      constexpr int16_t kGap = 4;
+      constexpr int16_t kDot = 10;
+      int16_t right = 0;
+      // Pack trailing-first so index 0 is leftmost in the cluster.
+      for (int8_t i = static_cast<int8_t>(statusSlotCount_) - 1; i >= 0; i--) {
+        const StatusSlot &slot = statusSlots_[i];
+        if (slot.solid) {
+          statusArea.add(
+              navPage_.div().style(Style()
+                                       .setPosition(Position::Absolute)
+                                       .setRight(Length::Px(right))
+                                       .setWidth(Length::Px(kDot))
+                                       .setHeight(Length::Px(kDot))
+                                       .setRadius(static_cast<uint8_t>(kDot / 2))
+                                       .setBackground(slot.color)));
+          right = static_cast<int16_t>(right + kDot + kGap);
+        } else if (slot.name && slot.name[0]) {
+          statusArea.add(navPage_.icon(slot.name)
+                             .style(Style()
+                                        .setPosition(Position::Absolute)
+                                        .setRight(Length::Px(right))
+                                        .setWidth(Length::Px(kStatusIcon))
+                                        .setHeight(Length::Px(kStatusIcon))
+                                        .setIconSize(
+                                            static_cast<uint8_t>(kStatusIcon))
+                                        .setColor(slot.color)
+                                        .setAlignH(Align::Center)
+                                        .setAlignV(Align::Center)));
+          right = static_cast<int16_t>(right + kStatusIcon + kGap);
+        }
+      }
+    }
+
+    // [ title | status→ ] with H padding for curved edges.
     auto &row =
         navPage_.div()
             .style(Style()
                        .setWidth(Length::Pct(100))
                        .setHeight(Length::Px(navH_))
-                       .setPadding(Edges(kNavPadY, kNavPadRight, kNavPadY,
-                                         kNavPadLeft))
+                       .setPadding(Edges(0, kNavPadRight, 0, kNavPadLeft))
                        .setColumns(2)
                        .setGap(8)
                        .setAlignV(Align::Center)
@@ -173,12 +218,7 @@ private:
                     .setFont(FontRole::Small)
                     .setColor(th.baseContent)
                     .setWidth(Length::Pct(100))))
-            .add(navPage_.text(statusLine_).style(
-                Style()
-                    .setIconSize(static_cast<uint8_t>(kStatusIcon))
-                    .setColor(th.baseContent)
-                    .setAlign(Align::End)
-                    .setWidth(Length::Pct(100))));
+            .add(statusArea);
 
     navPage_.add(row);
     navPage_.layoutUI(canvas);

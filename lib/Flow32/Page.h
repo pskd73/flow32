@@ -14,6 +14,7 @@ class UISelect;
 class UISelectOption;
 class UIText;
 class UIImage;
+class UIIcon;
 
 /**
  * Scrollable content region with composable UI.
@@ -70,6 +71,7 @@ public:
   UISelect &select();
   UISelectOption &selectOption();
   UIText &text(const char *s);
+  UIIcon &icon(const char *lucideName);
   UIImage &image(const uint16_t *pixels, int16_t srcW, int16_t srcH);
   void add(UINode &node);
   void tick(float dt);

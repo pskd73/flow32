@@ -15,6 +15,12 @@ constexpr uint8_t kTitleLineH = 18;
 constexpr uint8_t kDescLineH = 18;
 /** Space between title and description (design px). */
 constexpr int16_t kTitleDescGap = 0;
+/**
+ * Typical capital bitmap height for FontRole::Small (GoogleSans16aa).
+ * Used to optically center title ink with the Lucide icon square — drawText
+ * puts the baseline at ty+lineHeight, so glyphs sit low in the line box.
+ */
+constexpr int16_t kSmallCapH = 12;
 } // namespace
 
 // --- UISelectOption --------------------------------------------------------
@@ -143,14 +149,11 @@ void UISelectOption::paintSelf(Canvas &canvas) {
   const Point origin = canvas.origin();
 
   if (iconName_ && iconName_[0] && icons && icons->ready()) {
-    const uint32_t cp = icons->codepoint(iconName_);
-    if (cp) {
-      const int16_t baselineY =
-          static_cast<int16_t>(content.y + iconPx + origin.y);
-      const int16_t screenX = static_cast<int16_t>(content.x + origin.x);
-      const uint16_t icol =
-          selected_ ? Theme::brand(ButtonColor::Primary) : th.baseContent;
-      icons->draw(canvas.display(), cp, screenX, baselineY, iconPx, icol);
+    if (icons->drawInBox(canvas.display(), iconName_, content, origin.x,
+                         origin.y, iconPx,
+                         selected_ ? Theme::brand(ButtonColor::Primary)
+                                   : th.baseContent,
+                         IconDraw::Align::Start, IconDraw::Align::Start)) {
       textX = static_cast<int16_t>(content.x + iconPx + gap);
       textW = static_cast<int16_t>(textRight - textX);
       if (textW < 8) textW = 8;
@@ -158,6 +161,12 @@ void UISelectOption::paintSelf(Canvas &canvas) {
   }
 
   int16_t ty = content.y;
+  if (iconName_ && iconName_[0] && title_ && title_[0]) {
+    // Center capital ink with the icon: baseline at ty+kTitleLineH.
+    ty = static_cast<int16_t>(content.y + iconPx / 2 -
+                              static_cast<int16_t>(kTitleLineH) +
+                              kSmallCapH / 2);
+  }
   if (title_ && title_[0]) {
     TextStyle ts;
     ts.font = FontRole::Small;
@@ -179,16 +188,12 @@ void UISelectOption::paintSelf(Canvas &canvas) {
   }
 
   if (selected_ && icons && icons->ready()) {
-    const uint32_t checkCp = icons->codepoint("check");
-    if (checkCp) {
-      const int16_t top =
-          static_cast<int16_t>(content.y + (content.h - checkPx) / 2);
-      const int16_t cx =
-          static_cast<int16_t>(content.x + content.w - checkPx + origin.x);
-      const int16_t cy = static_cast<int16_t>(top + checkPx + origin.y);
-      icons->draw(canvas.display(), checkCp, cx, cy, checkPx,
-                  Theme::brand(ButtonColor::Primary));
-    }
+    const Rect checkBox(
+        static_cast<int16_t>(content.x + content.w - checkPx), content.y,
+        checkPx, content.h);
+    icons->drawInBox(canvas.display(), "check", checkBox, origin.x, origin.y,
+                     checkPx, Theme::brand(ButtonColor::Primary),
+                     IconDraw::Align::Start, IconDraw::Align::Center);
   }
 }
 
