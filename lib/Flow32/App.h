@@ -285,6 +285,9 @@ protected:
   virtual void onOpen() {}
   virtual void onClose() {}
 
+  /** Rebuild + relayout on the next frame (in-place setText does not grow). */
+  void requestRebuild() { store_.markDirty(); }
+
   S &data() { return store_.data(); }
 
   template <typename T> bool set(T &field, const T &value) {

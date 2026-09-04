@@ -134,8 +134,17 @@ void Page::tick(float dt) {
     roots_[i]->tick(dt);
   }
 
-  // Press dip/dim lives in node anim/chrome — must re-rasterize the cache.
-  if (focused_ && focused_->visualAnimating()) {
+  // Press dip lives on the focused node; marquee and similar can sit anywhere.
+  bool animating = focused_ && focused_->visualAnimating();
+  if (!animating) {
+    for (uint8_t i = 0; i < rootCount_; i++) {
+      if (roots_[i]->subtreeVisualAnimating()) {
+        animating = true;
+        break;
+      }
+    }
+  }
+  if (animating) {
     contentDirty_ = true;
   }
 }

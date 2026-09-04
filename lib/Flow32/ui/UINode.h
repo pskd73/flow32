@@ -72,6 +72,8 @@ public:
   void tick(float dt);
   /** True while this node has a transient draw animation (press, etc.). */
   virtual bool visualAnimating() const { return false; }
+  /** True if this node or a descendant is animating. */
+  bool subtreeVisualAnimating() const;
   void layout(int16_t x, int16_t y, int16_t availW);
   void draw(Canvas &canvas);
 

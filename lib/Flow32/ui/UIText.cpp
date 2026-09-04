@@ -50,5 +50,54 @@ void UIText::paintSelf(Canvas &canvas) {
   ts.paragraphGap = 0;
 
   const Rect box = canvas.contentBox(borderBox_, style_.padding);
-  canvas.drawText(box, text_, ts, false);
+  if (!marquee_ || box.w <= 0 || box.h <= 0) {
+    overflowing_ = false;
+    canvas.drawText(box, text_, ts, false);
+    return;
+  }
+
+  textW_ = canvas.measureTextWidth(text_, ts);
+  overflowing_ = textW_ > box.w;
+  if (!overflowing_) {
+    offset_ = 0;
+    canvas.drawText(box, text_, ts, false);
+    return;
+  }
+
+  ts.align = Align::Start;
+  const int16_t ox = canvas.origin().x;
+  const int16_t oy = canvas.origin().y;
+  Display &disp = canvas.display();
+  const bool hadClip = disp.clipEnabled();
+  const Rect prevClip = disp.clipRect();
+  canvas.setClip(
+      Rect(static_cast<int16_t>(box.x + ox), static_cast<int16_t>(box.y + oy),
+           box.w, box.h));
+  // Wide enough that drawText will not wrap; clip does the cropping.
+  const Rect line(static_cast<int16_t>(box.x - (int16_t)offset_), box.y, 10000,
+                  box.h);
+  canvas.drawText(line, text_, ts, false);
+  if (hadClip) {
+    canvas.setClip(prevClip);
+  } else {
+    canvas.clearClip();
+  }
+  boxW_ = box.w;
+}
+
+void UIText::tickSelf(float dt) {
+  if (!marquee_ || !overflowing_ || textW_ <= 0 || boxW_ <= 0) return;
+  if (pause_ > 0.f) {
+    pause_ -= dt;
+    return;
+  }
+  offset_ += kPxPerSec * dt;
+  // Last character is on screen once offset reaches textW - boxW. Keep going
+  // a bit so the ending isn't clipped at the right edge when we loop.
+  const float shown = static_cast<float>(textW_ - boxW_);
+  const float loop = (shown > 0.f ? shown : 0.f) + static_cast<float>(kGapPx);
+  if (offset_ >= loop) {
+    offset_ = 0;
+    pause_ = kPauseSec;
+  }
 }

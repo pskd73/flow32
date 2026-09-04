@@ -15,6 +15,7 @@
 #include "ShortStack18pt7b.h"
 
 #include "DisplayPanel.h"
+#include "Rect.h"
 
 /**
  * Smooth RGB565 display.
@@ -65,6 +66,8 @@ public:
 
   void setClip(int16_t x, int16_t y, int16_t w, int16_t h);
   void clearClip();
+  bool clipEnabled() const { return clipEnabled_; }
+  Rect clipRect() const { return Rect(clipX_, clipY_, clipW_, clipH_); }
   bool hasClip() const { return clipEnabled_; }
   /** Current clip in draw-target pixels (false if clip disabled). */
   bool clipRect(int16_t &x, int16_t &y, int16_t &w, int16_t &h) const {

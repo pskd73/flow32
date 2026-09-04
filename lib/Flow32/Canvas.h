@@ -125,6 +125,9 @@ public:
   int16_t measureTextHeight(const char *text, int16_t maxW,
                             const TextStyle &style);
 
+  /** Unwrapped advance width of `text` in the given style. */
+  int16_t measureTextWidth(const char *text, const TextStyle &style);
+
   DrawResult drawImage(const uint16_t *pixels, int16_t srcW, int16_t srcH,
                        int16_t boxW, int16_t boxH,
                        ImageFit fit = ImageFit::Cover, bool advance = true);

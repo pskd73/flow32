@@ -53,6 +53,14 @@ void UINode::tick(float dt) {
   }
 }
 
+bool UINode::subtreeVisualAnimating() const {
+  if (visualAnimating()) return true;
+  for (uint8_t i = 0; i < childCount_; i++) {
+    if (children_[i] && children_[i]->subtreeVisualAnimating()) return true;
+  }
+  return false;
+}
+
 void UINode::layout(int16_t x, int16_t y, int16_t availW) {
   layoutSelf(x, y, availW);
 }

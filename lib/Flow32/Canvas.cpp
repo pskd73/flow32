@@ -378,6 +378,17 @@ int16_t Canvas::measureTextHeight(const char *text, int16_t maxW,
   return drawTextInBox(0, 0, maxW, 10000, text, style, false).h;
 }
 
+int16_t Canvas::measureTextWidth(const char *text, const TextStyle &style) {
+  if (!text || !text[0]) return 0;
+  applyFont(style.font);
+  const uint8_t mediaSize =
+      style.iconSize > 0 ? style.iconSize : style.emojiSize;
+  syncEmojiDrawSize(mediaSize);
+  const char *end = text;
+  while (*end) end++;
+  return measureUtf8Width(text, end);
+}
+
 DrawResult Canvas::drawTextInBox(int16_t boxX, int16_t boxY, int16_t boxW,
                                  int16_t boxH, const char *text,
                                  const TextStyle &style, bool paint) {
