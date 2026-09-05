@@ -104,6 +104,11 @@ File Storage::open(const char *path, const char *mode) const {
   return (cfg_.bus == SdBus::Spi) ? SD.open(path, mode) : SD_MMC.open(path, mode);
 }
 
+bool Storage::remove(const char *path) const {
+  if (!ready_ || !path || !path[0]) return false;
+  return (cfg_.bus == SdBus::Spi) ? SD.remove(path) : SD_MMC.remove(path);
+}
+
 bool Storage::mkdir(const char *path) const {
   if (!ready_ || !path || !path[0]) return false;
   return (cfg_.bus == SdBus::Spi) ? SD.mkdir(path) : SD_MMC.mkdir(path);

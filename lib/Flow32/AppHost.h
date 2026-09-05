@@ -15,6 +15,9 @@ struct AppInfo {
   const char *icon = nullptr;
 };
 
+/** Transient Shell toast (theme status colours). */
+enum class ToastKind : uint8_t { Info, Success, Warning, Error };
+
 /**
  * Narrow runtime view for apps (launcher, settings, …).
  * Flow32 implements this; apps receive it via AppBase::onAttach.
@@ -40,6 +43,13 @@ public:
    * Shell uses this for root Back.
    */
   virtual bool openLauncher() = 0;
+
+  /**
+   * Bottom toast over the active app (auto-dismiss). Safe from any app via
+   * host(); message is copied.
+   */
+  virtual void showToast(const char *message, ToastKind kind = ToastKind::Info,
+                         uint16_t durationMs = 2000) = 0;
 
   /** Mounted microSD, or nullptr if storage is unavailable. */
   virtual class Storage *storage() { return nullptr; }

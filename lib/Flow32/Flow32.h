@@ -33,6 +33,7 @@
 #include "ui/UIToggle.h"
 #include "ui/UIRange.h"
 #include "ui/UISelect.h"
+#include "ui/UIGridSelect.h"
 #include "ui/UIDebug.h"
 #include "ui/UIArena.h"
 

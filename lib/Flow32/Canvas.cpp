@@ -10,6 +10,7 @@
 #include "ui/UIToggle.h"
 #include "ui/UIRange.h"
 #include "ui/UISelect.h"
+#include "ui/UIGridSelect.h"
 
 #include <string.h>
 
@@ -701,6 +702,12 @@ UISelect &Canvas::select() { return arena_.create<UISelect>(); }
 
 UISelectOption &Canvas::selectOption() {
   return arena_.create<UISelectOption>();
+}
+
+UIGridSelect &Canvas::gridSelect() { return arena_.create<UIGridSelect>(); }
+
+UIGridSelectOption &Canvas::gridSelectOption() {
+  return arena_.create<UIGridSelectOption>();
 }
 
 UIText &Canvas::text(const char *s) { return arena_.create<UIText>(s); }

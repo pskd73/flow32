@@ -200,6 +200,11 @@ public:
     return setActiveApp(0);
   }
 
+  void showToast(const char *message, ToastKind kind,
+                 uint16_t durationMs) override {
+    shell_.showToast(message, kind, durationMs);
+  }
+
   Storage *storage() override { return storage_; }
 
   bool ramEnsureProfile(RamManager::Profile profile, const char *requester,

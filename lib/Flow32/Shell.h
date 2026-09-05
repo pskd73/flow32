@@ -45,7 +45,10 @@ public:
   void setHost(AppHost *host) { host_ = host; }
   AppHost *host() const { return host_; }
 
-  void setApp(AppBase *app) { app_ = app; }
+  void setApp(AppBase *app) {
+    if (app_ != app) clearToast();
+    app_ = app;
+  }
   AppBase *app() const { return app_; }
 
   void setNavHeight(int16_t h) {
@@ -55,12 +58,47 @@ public:
   }
   int16_t navHeight() const { return navH_; }
 
+  /**
+   * Bottom toast: slides up, holds `durationMs`, slides down. Message copied.
+   * Replaces any active toast. durationMs clamped to at least 500.
+   */
+  void showToast(const char *message, ToastKind kind = ToastKind::Info,
+                 uint16_t durationMs = 2000) {
+    if (!message) message = "";
+    size_t n = 0;
+    while (message[n] && n + 1 < sizeof(toastMsg_)) {
+      toastMsg_[n] = message[n];
+      n++;
+    }
+    toastMsg_[n] = '\0';
+    if (!toastMsg_[0]) {
+      clearToast();
+      return;
+    }
+    toastKind_ = kind;
+    if (durationMs < 500) durationMs = 500;
+    toastHoldMs_ = durationMs;
+    toastPhase_ = ToastPhase::In;
+    toastT_ = 0.f;
+    if (app_) app_->invalidateContent();
+  }
+
+  void clearToast() {
+    if (toastPhase_ == ToastPhase::Idle) return;
+    toastPhase_ = ToastPhase::Idle;
+    toastT_ = 0.f;
+    toastMsg_[0] = '\0';
+    if (app_) app_->invalidateContent();
+  }
+
   void frame(Canvas &canvas, InputHub &input, float dt) {
     if (!app_) return;
 
     // May switch apps (root Back → launcher); apply layout to the active app after.
     handleBack(input);
     if (!app_) return;
+
+    tickToast(dt);
 
     app_->setPanel(panel_);
     const bool fullscreen = app_->shellFullscreen();
@@ -76,6 +114,8 @@ public:
       canvas.clearClip();
       drawNav(canvas);
     }
+
+    drawToast(canvas);
   }
 
 private:
@@ -92,6 +132,53 @@ private:
   };
   StatusSlot statusSlots_[kMaxStatus] = {};
   uint8_t statusSlotCount_ = 0;
+
+  enum class ToastPhase : uint8_t { Idle, In, Hold, Out };
+  static constexpr size_t kToastMsgLen = 48;
+  static constexpr float kToastInSec = 0.28f;
+  static constexpr float kToastOutSec = 0.24f;
+  char toastMsg_[kToastMsgLen] = {};
+  ToastKind toastKind_ = ToastKind::Info;
+  ToastPhase toastPhase_ = ToastPhase::Idle;
+  float toastT_ = 0.f; // 0 = off-screen below, 1 = rested
+  uint16_t toastHoldMs_ = 2000;
+  uint32_t toastHoldUntilMs_ = 0;
+
+  static float easeOutCubic(float t) {
+    if (t <= 0.f) return 0.f;
+    if (t >= 1.f) return 1.f;
+    const float u = 1.f - t;
+    return 1.f - u * u * u;
+  }
+
+  void tickToast(float dt) {
+    if (toastPhase_ == ToastPhase::Idle) return;
+    if (dt < 0.f) dt = 0.f;
+    if (dt > 0.05f) dt = 0.05f;
+
+    if (toastPhase_ == ToastPhase::In) {
+      toastT_ += dt / kToastInSec;
+      if (toastT_ >= 1.f) {
+        toastT_ = 1.f;
+        toastPhase_ = ToastPhase::Hold;
+        toastHoldUntilMs_ = millis() + toastHoldMs_;
+      }
+      if (app_) app_->invalidateContent();
+    } else if (toastPhase_ == ToastPhase::Hold) {
+      if (static_cast<int32_t>(millis() - toastHoldUntilMs_) >= 0) {
+        toastPhase_ = ToastPhase::Out;
+        if (app_) app_->invalidateContent();
+      }
+    } else if (toastPhase_ == ToastPhase::Out) {
+      toastT_ -= dt / kToastOutSec;
+      if (toastT_ <= 0.f) {
+        toastT_ = 0.f;
+        toastPhase_ = ToastPhase::Idle;
+        toastMsg_[0] = '\0';
+      }
+      if (app_) app_->invalidateContent();
+    }
+  }
 
   /**
    * Consume Back+Down from the queue (apps never see it).
@@ -232,5 +319,77 @@ private:
         th.base300);
     canvas.present(
         Rect(nav.x, static_cast<int16_t>(nav.y + nav.h - 1), nav.w, 1));
+  }
+
+  void drawToast(Canvas &canvas) {
+    if (toastPhase_ == ToastPhase::Idle || !toastMsg_[0]) return;
+
+    const Theme::ThemeTokens &th = Theme::active();
+    uint16_t bg = th.neutral;
+    uint16_t fg = th.neutralContent;
+    switch (toastKind_) {
+    case ToastKind::Success:
+      bg = th.success;
+      fg = th.successContent;
+      break;
+    case ToastKind::Warning:
+      bg = th.warning;
+      fg = th.warningContent;
+      break;
+    case ToastKind::Error:
+      bg = th.error;
+      fg = th.errorContent;
+      break;
+    case ToastKind::Info:
+    default:
+      break;
+    }
+
+    TextStyle ts;
+    ts.font = FontRole::Small;
+    ts.color = fg;
+    ts.align = Align::Center;
+
+    constexpr int16_t kPadX = 10;
+    constexpr int16_t kPadY = 5;
+    constexpr int16_t kMarginX = 20;
+    constexpr int16_t kMarginBottom = 12;
+    constexpr int16_t kLineH = 14;
+
+    const int16_t maxInner =
+        static_cast<int16_t>(panel_.w - 2 * kMarginX - 2 * kPadX);
+    int16_t tw = canvas.measureTextWidth(toastMsg_, ts);
+    if (tw > maxInner) tw = maxInner;
+    if (tw < 1) tw = 1;
+
+    const int16_t boxW = static_cast<int16_t>(tw + 2 * kPadX);
+    const int16_t boxH = static_cast<int16_t>(kLineH + 2 * kPadY);
+    const int16_t restY =
+        static_cast<int16_t>(panel_.y + panel_.h - boxH - kMarginBottom);
+    // Travel: fully below the panel bottom → rested inset.
+    const int16_t travel = static_cast<int16_t>(boxH + kMarginBottom + 4);
+    const float visible = easeOutCubic(toastT_);
+    const int16_t y = static_cast<int16_t>(
+        restY + static_cast<int16_t>((1.f - visible) * travel + 0.5f));
+    const int16_t x =
+        static_cast<int16_t>(panel_.x + (panel_.w - boxW) / 2);
+    const Rect box(x, y, boxW, boxH);
+
+    // Clip to panel so the enter/exit doesn't paint past the glass.
+    canvas.setOrigin(0, 0);
+    canvas.setClip(panel_);
+    canvas.fillRoundRect(box, th.radiusBox ? th.radiusBox : 8, bg);
+    canvas.drawText(Rect(static_cast<int16_t>(x + kPadX),
+                         static_cast<int16_t>(y + kPadY), tw, kLineH),
+                    toastMsg_, ts, false);
+    canvas.clearClip();
+
+    // Present the union of the travel strip so prior frames don't ghost.
+    const int16_t presentY = restY;
+    const int16_t presentH =
+        static_cast<int16_t>(panel_.y + panel_.h - presentY);
+    if (presentH > 0) {
+      canvas.present(Rect(x, presentY, boxW, presentH));
+    }
   }
 };

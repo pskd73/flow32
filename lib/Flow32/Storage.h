@@ -25,6 +25,8 @@ public:
 
   bool exists(const char *path) const;
   File open(const char *path, const char *mode = FILE_READ) const;
+  /** Delete a file (card-rooted path). Returns false if missing or failed. */
+  bool remove(const char *path) const;
 
   /** Create a directory (card-rooted path, e.g. "/data"). */
   bool mkdir(const char *path) const;

@@ -17,6 +17,8 @@ class UIToggle;
 class UIRange;
 class UISelect;
 class UISelectOption;
+class UIGridSelect;
+class UIGridSelectOption;
 class UIText;
 class UIImage;
 
@@ -150,6 +152,8 @@ public:
   UIRange &range();
   UISelect &select();
   UISelectOption &selectOption();
+  UIGridSelect &gridSelect();
+  UIGridSelectOption &gridSelectOption();
   UIText &text(const char *s);
   UIImage &image(const uint16_t *pixels, int16_t srcW, int16_t srcH);
   void add(UINode &node);

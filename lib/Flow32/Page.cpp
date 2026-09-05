@@ -8,6 +8,7 @@
 #include "ui/UIToggle.h"
 #include "ui/UIRange.h"
 #include "ui/UISelect.h"
+#include "ui/UIGridSelect.h"
 
 #include <esp_heap_caps.h>
 #include <math.h>
@@ -105,6 +106,12 @@ UIRange &Page::range() { return arena_.create<UIRange>(); }
 UISelect &Page::select() { return arena_.create<UISelect>(); }
 
 UISelectOption &Page::selectOption() { return arena_.create<UISelectOption>(); }
+
+UIGridSelect &Page::gridSelect() { return arena_.create<UIGridSelect>(); }
+
+UIGridSelectOption &Page::gridSelectOption() {
+  return arena_.create<UIGridSelectOption>();
+}
 
 UIText &Page::text(const char *s) { return arena_.create<UIText>(s); }
 
