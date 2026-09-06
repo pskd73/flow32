@@ -623,30 +623,16 @@ void Canvas::blitScaled(const Rect &dstScreen, const uint16_t *pixels,
                         int16_t srcW, int16_t srcH, int32_t srcX0,
                         int32_t srcY0, int32_t srcX1, int32_t srcY1) {
   if (!pixels || dstScreen.empty() || srcX1 <= srcX0 || srcY1 <= srcY0) return;
-
-  const int32_t srcSpanW = srcX1 - srcX0;
-  const int32_t srcSpanH = srcY1 - srcY0;
-
-  for (int16_t row = 0; row < dstScreen.h; row++) {
-    const int32_t sy =
-        srcY0 + (int32_t)row * srcSpanH / dstScreen.h;
-    if (sy < 0 || sy >= srcH) continue;
-    const int16_t dy = static_cast<int16_t>(dstScreen.y + row);
-    for (int16_t col = 0; col < dstScreen.w; col++) {
-      const int32_t sx =
-          srcX0 + (int32_t)col * srcSpanW / dstScreen.w;
-      if (sx < 0 || sx >= srcW) continue;
-      const int16_t dx = static_cast<int16_t>(dstScreen.x + col);
-      display_.drawPixel(dx, dy, pixels[(int32_t)sy * srcW + sx]);
-    }
-  }
+  display_.blitScaledRoundRect(dstScreen.x, dstScreen.y, dstScreen.w,
+                               dstScreen.h, /*r=*/0, pixels, srcW, srcH, srcX0,
+                               srcY0, srcX1, srcY1);
 }
 
 DrawResult Canvas::drawImage(const uint16_t *pixels, int16_t srcW, int16_t srcH,
                              int16_t boxW, int16_t boxH, ImageFit fit,
                              bool advance) {
   const Rect box(cx_, cy_, boxW, boxH);
-  const DrawResult r = drawImage(box, pixels, srcW, srcH, fit, false);
+  const DrawResult r = drawImage(box, pixels, srcW, srcH, fit, 0, false);
   if (advance) {
     cx_ = bounds_.x;
     cy_ = static_cast<int16_t>(cy_ + boxH);
@@ -657,7 +643,7 @@ DrawResult Canvas::drawImage(const uint16_t *pixels, int16_t srcW, int16_t srcH,
 
 DrawResult Canvas::drawImage(const Rect &box, const uint16_t *pixels,
                              int16_t srcW, int16_t srcH, ImageFit fit,
-                             bool advance) {
+                             int16_t radius, bool advance) {
   DrawResult result{};
   if (!pixels || box.empty()) return result;
 
@@ -669,8 +655,11 @@ DrawResult Canvas::drawImage(const Rect &box, const uint16_t *pixels,
   int16_t screenX, screenY;
   contentToScreen(static_cast<int16_t>(box.x + odx),
                   static_cast<int16_t>(box.y + ody), screenX, screenY);
-  const Rect dst(screenX, screenY, odw, odh);
-  blitScaled(dst, pixels, srcW, srcH, sx0, sy0, sx1, sy1);
+  int16_t r = sx(radius);
+  if (r * 2 > odw) r = odw / 2;
+  if (r * 2 > odh) r = odh / 2;
+  display_.blitScaledRoundRect(screenX, screenY, odw, odh, r, pixels, srcW,
+                               srcH, sx0, sy0, sx1, sy1);
 
   result.w = box.w;
   result.h = box.h;

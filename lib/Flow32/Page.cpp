@@ -470,7 +470,7 @@ bool Page::presentViewport(Display &display) {
   return true;
 }
 
-bool Page::drawUI(Canvas &canvas) {
+bool Page::drawUI(Canvas &canvas, bool allowPresent) {
   uiScale_ = canvas.uiScale();
   if (focused_) ensureFocusedVisible();
 
@@ -497,10 +497,20 @@ bool Page::drawUI(Canvas &canvas) {
   }
 
   if (contentFb_) {
-    return presentViewport(canvas.display());
+    blitViewport(canvas.display());
+    if (!allowPresent) {
+      // Buffer is current; Shell will present after overlays.
+      lastPresentedScrollY_ = sy;
+      return true;
+    }
+    canvas.display().present(viewport_.x, viewport_.y, viewport_.w, viewport_.h);
+    lastPresentedScrollY_ = sy;
+    return true;
   }
 
-  canvas.display().present(viewport_.x, viewport_.y, viewport_.w, viewport_.h);
+  if (allowPresent) {
+    canvas.display().present(viewport_.x, viewport_.y, viewport_.w, viewport_.h);
+  }
   lastPresentedScrollY_ = sy;
   return true;
 }

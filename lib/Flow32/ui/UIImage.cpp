@@ -27,5 +27,6 @@ void UIImage::layoutSelf(int16_t x, int16_t y, int16_t availW) {
 void UIImage::paintSelf(Canvas &canvas) {
   if (!pixels_) return;
   const Rect box = canvas.contentBox(borderBox_, style_.padding);
-  canvas.drawImage(box, pixels_, srcW_, srcH_, style_.objectFit, false);
+  canvas.drawImage(box, pixels_, srcW_, srcH_, style_.objectFit, style_.radius,
+                   false);
 }

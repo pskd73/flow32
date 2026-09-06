@@ -83,9 +83,14 @@ public:
   /**
    * Rasterize if dirty, then push the scrolled viewport to the panel.
    * Prefer streaming from the content cache (no panel-FB copy) when possible.
-   * Returns true if the panel was updated (caller may skip canvas.present()).
+   * Returns true if the panel buffer was updated.
+   * When allowPresent is false, updates the panel FB but skips SPI (Shell
+   * composites overlays then presents once).
    */
-  bool drawUI(Canvas &canvas);
+  bool drawUI(Canvas &canvas, bool allowPresent = true);
+
+  /** Copy scrolled content cache → panel FB (no SPI). */
+  void blitToPanel(Display &display) { blitViewport(display); }
 
   void syncFocus();
   void ensureFocusedVisible();

@@ -51,6 +51,18 @@ public:
   virtual void showToast(const char *message, ToastKind kind = ToastKind::Info,
                          uint16_t durationMs = 2000) = 0;
 
+  /**
+   * True while a Shell toast is on screen. Apps should blit into the panel
+   * buffer but skip SPI present — Shell composites the toast and presents once.
+   */
+  virtual bool toastVisible() const { return false; }
+
+  /**
+   * True while a full-panel overlay (idle eyes) owns the glass. Apps and Shell
+   * chrome must not SPI-present — the overlay clears and presents the panel.
+   */
+  virtual bool overlaySuppressesPresent() const { return false; }
+
   /** Mounted microSD, or nullptr if storage is unavailable. */
   virtual class Storage *storage() { return nullptr; }
 

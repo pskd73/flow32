@@ -80,6 +80,8 @@ public:
     toastHoldMs_ = durationMs;
     toastPhase_ = ToastPhase::In;
     toastT_ = 0.f;
+    // Refresh content cache once. Do not invalidate every animation frame —
+    // that SPI-presented the page without the toast and caused flicker.
     if (app_) app_->invalidateContent();
   }
 
@@ -89,6 +91,10 @@ public:
     toastT_ = 0.f;
     toastMsg_[0] = '\0';
     if (app_) app_->invalidateContent();
+  }
+
+  bool toastVisible() const {
+    return toastPhase_ != ToastPhase::Idle && toastMsg_[0];
   }
 
   void frame(Canvas &canvas, InputHub &input, float dt) {
@@ -109,13 +115,22 @@ public:
 
     app_->frame(canvas, input, dt);
 
+    const bool suppressPresent =
+        host_ && (host_->toastVisible() || host_->overlaySuppressesPresent());
+
     if (!fullscreen) {
       canvas.setOrigin(0, 0);
       canvas.clearClip();
-      drawNav(canvas);
+      drawNav(canvas, /*allowPresent=*/!suppressPresent);
     }
 
-    drawToast(canvas);
+    if (toastVisible()) {
+      // Same model as scroll: blit cache → composite overlay → one SPI present.
+      // Always present while visible so a theme/content change mid-hold still
+      // lands on the glass (app present is suppressed for the toast lifetime).
+      app_->blitContentToPanel(canvas.display());
+      drawToast(canvas, content, /*doPresent=*/true);
+    }
   }
 
 private:
@@ -163,11 +178,9 @@ private:
         toastPhase_ = ToastPhase::Hold;
         toastHoldUntilMs_ = millis() + toastHoldMs_;
       }
-      if (app_) app_->invalidateContent();
     } else if (toastPhase_ == ToastPhase::Hold) {
       if (static_cast<int32_t>(millis() - toastHoldUntilMs_) >= 0) {
         toastPhase_ = ToastPhase::Out;
-        if (app_) app_->invalidateContent();
       }
     } else if (toastPhase_ == ToastPhase::Out) {
       toastT_ -= dt / kToastOutSec;
@@ -175,8 +188,9 @@ private:
         toastT_ = 0.f;
         toastPhase_ = ToastPhase::Idle;
         toastMsg_[0] = '\0';
+        // One clean repaint without the toast.
+        if (app_) app_->invalidateContent();
       }
-      if (app_) app_->invalidateContent();
     }
   }
 
@@ -238,7 +252,7 @@ private:
     }
   }
 
-  void drawNav(Canvas &canvas) {
+  void drawNav(Canvas &canvas, bool allowPresent = true) {
     const Theme::ThemeTokens &th = Theme::active();
     const Rect nav(panel_.x, panel_.y, panel_.w, navH_);
     navPage_.setViewport(nav);
@@ -310,18 +324,20 @@ private:
     navPage_.add(row);
     navPage_.layoutUI(canvas);
     navPage_.invalidateContent();
-    navPage_.drawUI(canvas);
+    navPage_.drawUI(canvas, allowPresent);
 
     canvas.setOrigin(0, 0);
     canvas.clearClip();
     canvas.fillRect(
         Rect(nav.x, static_cast<int16_t>(nav.y + nav.h - 1), nav.w, 1),
         th.base300);
-    canvas.present(
-        Rect(nav.x, static_cast<int16_t>(nav.y + nav.h - 1), nav.w, 1));
+    if (allowPresent) {
+      canvas.present(
+          Rect(nav.x, static_cast<int16_t>(nav.y + nav.h - 1), nav.w, 1));
+    }
   }
 
-  void drawToast(Canvas &canvas) {
+  void drawToast(Canvas &canvas, const Rect &content, bool doPresent) {
     if (toastPhase_ == ToastPhase::Idle || !toastMsg_[0]) return;
 
     const Theme::ThemeTokens &th = Theme::active();
@@ -349,12 +365,15 @@ private:
     ts.font = FontRole::Small;
     ts.color = fg;
     ts.align = Align::Center;
+    // Small AA face baseline is 18 / yAdvance ~25. Without lineHeight, drawText
+    // requires the full yAdvance to fit the box and paints nothing in 14px.
+    constexpr int16_t kLineH = 18;
+    ts.lineHeight = static_cast<uint8_t>(kLineH);
 
     constexpr int16_t kPadX = 10;
-    constexpr int16_t kPadY = 5;
+    constexpr int16_t kPadY = 6;
     constexpr int16_t kMarginX = 20;
     constexpr int16_t kMarginBottom = 12;
-    constexpr int16_t kLineH = 14;
 
     const int16_t maxInner =
         static_cast<int16_t>(panel_.w - 2 * kMarginX - 2 * kPadX);
@@ -379,17 +398,21 @@ private:
     canvas.setOrigin(0, 0);
     canvas.setClip(panel_);
     canvas.fillRoundRect(box, th.radiusBox ? th.radiusBox : 8, bg);
-    canvas.drawText(Rect(static_cast<int16_t>(x + kPadX),
-                         static_cast<int16_t>(y + kPadY), tw, kLineH),
+    // drawText baselines at penY+fontBaseline (18). Optically center capital
+    // ink (~12px) in the toast pill — same trick as UISelect titles.
+    constexpr int16_t kSmallCapH = 12;
+    const int16_t textY = static_cast<int16_t>(
+        y + boxH / 2 - kLineH + kSmallCapH / 2);
+    canvas.drawText(Rect(static_cast<int16_t>(x + kPadX), textY, tw,
+                         static_cast<int16_t>(kLineH + 4)),
                     toastMsg_, ts, false);
     canvas.clearClip();
 
-    // Present the union of the travel strip so prior frames don't ghost.
-    const int16_t presentY = restY;
-    const int16_t presentH =
-        static_cast<int16_t>(panel_.y + panel_.h - presentY);
-    if (presentH > 0) {
-      canvas.present(Rect(x, presentY, boxW, presentH));
+    if (!doPresent) return;
+
+    // Full content width — vacated toast pixels were restored by the blit.
+    if (content.w > 0 && content.h > 0) {
+      canvas.present(content);
     }
   }
 };

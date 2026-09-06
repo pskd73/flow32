@@ -57,6 +57,12 @@ public:
   virtual void invalidateContent() {}
 
   /**
+   * Copy the scrolled content cache into the panel framebuffer without SPI.
+   * Used by Shell to restore pixels under an overlay (toast) before composite.
+   */
+  virtual void blitContentToPanel(class Display & /*display*/) {}
+
+  /**
    * False while the app has to stay on screen, which suppresses the idle
    * screensaver. For a live call the audio survives being covered, but the
    * status and controls the user is watching would not.
@@ -165,6 +171,10 @@ public:
 
   void invalidateContent() override { page_.invalidateContent(); }
 
+  void blitContentToPanel(Display &display) override {
+    page_.blitToPanel(display);
+  }
+
   void setPanel(const Rect &panel) override { panel_ = panel; }
 
   void setContentViewport(const Rect &content) override {
@@ -246,7 +256,12 @@ public:
     rebuildIfNeeded(canvas);
 
     page_.tick(dt);
-    page_.drawUI(canvas);
+    // Toast and idle-eyes own the final SPI present; we still rasterize/blit
+    // into the panel FB when dirty so the overlay (or Shell) can composite.
+    const bool allowPresent =
+        !(host() &&
+          (host()->toastVisible() || host()->overlaySuppressesPresent()));
+    page_.drawUI(canvas, allowPresent);
     store_.tick();
   }
 
@@ -297,6 +312,9 @@ protected:
   template <typename T> bool set(T &field, const T &value) {
     return store_.set(field, value);
   }
+
+  /** Mark NVS blob dirty (for in-place edits to data() that bypass set()). */
+  void schedulePersist() { store_.scheduleSave(); }
 
   bool begin(const char *nvsNs, uint32_t saveDebounceMs = 300) {
     if (!store_.begin(nvsNs, saveDebounceMs)) return false;

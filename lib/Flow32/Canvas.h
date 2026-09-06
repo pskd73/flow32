@@ -133,9 +133,13 @@ public:
   DrawResult drawImage(const uint16_t *pixels, int16_t srcW, int16_t srcH,
                        int16_t boxW, int16_t boxH,
                        ImageFit fit = ImageFit::Cover, bool advance = true);
+  /**
+   * `radius` is design px (scaled like fillRoundRect). Clips the blit to an
+   * AA round rect when > 0; outside pixels leave the framebuffer untouched.
+   */
   DrawResult drawImage(const Rect &box, const uint16_t *pixels, int16_t srcW,
                        int16_t srcH, ImageFit fit = ImageFit::Cover,
-                       bool advance = false);
+                       int16_t radius = 0, bool advance = false);
 
   void fillRect(const Rect &box, uint16_t color);
   /** radius is design px — scaled by uiScale before rasterizing. */

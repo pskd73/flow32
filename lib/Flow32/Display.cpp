@@ -368,6 +368,71 @@ void Display::fillRoundRect(int16_t x, int16_t y, int16_t w, int16_t h,
               x + w - rf, y + h - rf);                                       // BR
 }
 
+void Display::blitScaledRoundRect(int16_t x, int16_t y, int16_t w, int16_t h,
+                                  int16_t r, const uint16_t *pixels,
+                                  int16_t srcW, int16_t srcH, int32_t srcX0,
+                                  int32_t srcY0, int32_t srcX1,
+                                  int32_t srcY1) {
+  if (!fb_ || !pixels || w <= 0 || h <= 0) return;
+  if (srcX1 <= srcX0 || srcY1 <= srcY0 || srcW <= 0 || srcH <= 0) return;
+
+  r = clampRadius(w, h, r);
+  const int32_t srcSpanW = srcX1 - srcX0;
+  const int32_t srcSpanH = srcY1 - srcY0;
+
+  auto sample = [&](int16_t col, int16_t row) -> uint16_t {
+    const int32_t sy = srcY0 + (int32_t)row * srcSpanH / h;
+    const int32_t sx = srcX0 + (int32_t)col * srcSpanW / w;
+    if (sy < 0 || sy >= srcH || sx < 0 || sx >= srcW) return 0;
+    return pixels[(int32_t)sy * srcW + sx];
+  };
+
+  auto blitRowSpan = [&](int16_t row, int16_t col0, int16_t col1) {
+    if (col1 <= col0) return;
+    const int16_t dy = static_cast<int16_t>(y + row);
+    for (int16_t col = col0; col < col1; col++) {
+      drawPixel(static_cast<int16_t>(x + col), dy, sample(col, row));
+    }
+  };
+
+  if (r <= 0) {
+    for (int16_t row = 0; row < h; row++) blitRowSpan(row, 0, w);
+    return;
+  }
+
+  // Opaque body — AA only in the four corner quarters (same layout as fill).
+  if (h > 2 * r) {
+    for (int16_t row = r; row < h - r; row++) blitRowSpan(row, 0, w);
+  }
+  if (w > 2 * r) {
+    for (int16_t row = 0; row < r; row++) blitRowSpan(row, r, w - r);
+    for (int16_t row = h - r; row < h; row++) blitRowSpan(row, r, w - r);
+  }
+
+  const float rf = static_cast<float>(r);
+  auto paintCorner = [&](int16_t col0, int16_t row0, float cx, float cy) {
+    for (int16_t j = 0; j < r; j++) {
+      for (int16_t i = 0; i < r; i++) {
+        const float dx = (col0 + i + 0.5f) - cx;
+        const float dy = (row0 + j + 0.5f) - cy;
+        const float sd = sqrtf(dx * dx + dy * dy) - rf;
+        const uint8_t cover = coverFromSd(sd);
+        if (cover == 0) continue;
+        const int16_t col = static_cast<int16_t>(col0 + i);
+        const int16_t row = static_cast<int16_t>(row0 + j);
+        blendPixel(static_cast<int16_t>(x + col),
+                   static_cast<int16_t>(y + row), sample(col, row), cover);
+      }
+    }
+  };
+
+  paintCorner(0, 0, rf, rf);
+  paintCorner(static_cast<int16_t>(w - r), 0, w - rf, rf);
+  paintCorner(0, static_cast<int16_t>(h - r), rf, h - rf);
+  paintCorner(static_cast<int16_t>(w - r), static_cast<int16_t>(h - r), w - rf,
+              h - rf);
+}
+
 void Display::strokeRoundRect(int16_t x, int16_t y, int16_t w, int16_t h,
                               int16_t r, uint8_t strokeW, uint16_t color,
                               bool outside) {

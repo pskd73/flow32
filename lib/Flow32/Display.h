@@ -112,6 +112,16 @@ public:
                      uint16_t color);
 
   /**
+   * Nearest-neighbor scale of RGB565 `pixels` into (x,y,w,h). When r > 0,
+   * clips to an AA round rect (same coverage as fillRoundRect) so outside
+   * pixels leave the framebuffer unchanged.
+   */
+  void blitScaledRoundRect(int16_t x, int16_t y, int16_t w, int16_t h,
+                           int16_t r, const uint16_t *pixels, int16_t srcW,
+                           int16_t srcH, int32_t srcX0, int32_t srcY0,
+                           int32_t srcX1, int32_t srcY1);
+
+  /**
    * Anti-aliased rounded stroke. `outside` grows beyond the box; otherwise
    * the stroke sits inside the box edge (Adafruit drawRoundRect semantics).
    */

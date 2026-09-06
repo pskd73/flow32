@@ -205,6 +205,10 @@ public:
     shell_.showToast(message, kind, durationMs);
   }
 
+  bool toastVisible() const override { return shell_.toastVisible(); }
+
+  bool overlaySuppressesPresent() const override { return idleShowing_; }
+
   Storage *storage() override { return storage_; }
 
   bool ramEnsureProfile(RamManager::Profile profile, const char *requester,
@@ -243,6 +247,12 @@ public:
       RamManager::setForeground(next->appName());
     } else {
       RamManager::setForeground("");
+    }
+    // App switch (wake word → Ask, Back → launcher, …) always dismisses the
+    // idle overlay. Reset the idle timer so we do not bounce straight back.
+    if (idleShowing_) {
+      idleShowing_ = false;
+      lastInputMs_ = millis();
     }
     if (begun_ && next) {
       if (!next->open()) {
@@ -373,14 +383,28 @@ public:
     const bool mayIdle = !app || app->allowsIdle();
 
     if (idleShowing_) {
-      if (!activity && mayIdle) {
-        if (now - lastMs_ < 16) return;
-        const float dt = (now - lastMs_) / 1000.0f;
-        lastMs_ = now;
-        idleEyes_.frame(canvas_, panelRect(), dt);
+      if (now - lastMs_ < 16) return;
+      const float dt = (now - lastMs_) / 1000.0f;
+      lastMs_ = now;
+
+      // Keep the foreground app ticking under the eyes (IdleEyes contract).
+      // Without this, launcher never polls wakeWordTakeDetected() until a
+      // joystick event dismisses the overlay.
+      shell_.frame(canvas_, input_, dt);
+
+      // Wake→Ask calls setActiveApp, which clears idleShowing_. Joystick /
+      // allowsIdle=false still go through wakeFromIdle (drop the wake press).
+      if (!idleShowing_) return;
+
+      AppBase *const appNow = activeApp();
+      if (activity || (appNow && !appNow->allowsIdle())) {
+        wakeFromIdle();
+        shell_.frame(canvas_, input_, 0.f);
         return;
       }
-      wakeFromIdle();
+
+      idleEyes_.frame(canvas_, panelRect(), dt);
+      return;
     }
 
     const uint32_t idleMs = config_.idleEyesSec() * 1000u;
@@ -401,11 +425,12 @@ public:
 private:
   /**
    * The press that wakes the device only wakes it — dropping the queue stops
-   * the app also acting on it. The app kept running while the eyes were up, so
-   * it has no pending redraw of its own and has to be told the panel is dirty.
+   * the app also acting on it. Content under the eyes may be stale on the
+   * panel, so the active app is told to redraw.
    */
   void wakeFromIdle() {
     idleShowing_ = false;
+    lastInputMs_ = millis();
     UIEvent drop;
     while (input_.pop(drop)) {
     }
