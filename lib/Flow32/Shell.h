@@ -316,7 +316,7 @@ private:
                        .setBackground(th.base200))
             .add(navPage_.text(title).style(
                 Style()
-                    .setFont(FontRole::Small)
+                    .setFont(FontRole::Title)
                     .setColor(th.baseContent)
                     .setWidth(Length::Pct(100))))
             .add(statusArea);

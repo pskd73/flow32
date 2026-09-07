@@ -28,6 +28,8 @@ enum class FontRole : uint8_t {
   Body,
   BodyBold,
   BodyLarge,
+  Title,
+  TitleLarge,
   Playful,
   PlayfulLarge,
   Childlike,

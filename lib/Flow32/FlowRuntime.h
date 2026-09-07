@@ -11,10 +11,12 @@
 #include "Shell.h"
 #include "Storage.h"
 #include "StorageConfig.h"
+#include "SplashPng.h"
 #include "input/InputHub.h"
 #include "input/InputSource.h"
 #include "input/SerialInput.h"
 #include "ui/Theme.h"
+#include "ui/Style.h"
 #include "ui/UIDebug.h"
 #include "RamManager.h"
 
@@ -30,6 +32,7 @@
  *     .storage(SdDefault())
  *     .debugBorders(false)
  *     .idleEyes(30)
+ *     .splash(splashPage, 2, "/logo/mark.png")
  *
  * Hardware input addons (e.g. JoystickInput) are not config — register them
  * with Flow32::input() and pass pins at construction.
@@ -57,12 +60,27 @@ public:
     idleEyesSec_ = seconds;
     return *this;
   }
+  /**
+   * Show `page` full-screen for `seconds` after the display comes up, before
+   * the first app opens. 0 seconds skips. Optional `sdImage` is a card-rooted
+   * PNG (e.g. "/logo/mark.png") loaded onto the page after storage mounts.
+   */
+  FlowConfig &splash(Page &page, uint32_t seconds,
+                     const char *sdImage = nullptr) {
+    splashPage_ = &page;
+    splashSec_ = seconds;
+    splashImage_ = sdImage;
+    return *this;
+  }
 
   const Theme::ThemeTokens *theme() const { return theme_; }
   bool hasStorage() const { return hasStorage_; }
   const StorageConfig &storage() const { return storage_; }
   bool debugBorders() const { return debugBorders_; }
   uint32_t idleEyesSec() const { return idleEyesSec_; }
+  Page *splashPage() const { return splashPage_; }
+  uint32_t splashSec() const { return splashSec_; }
+  const char *splashImage() const { return splashImage_; }
 
 private:
   friend class Flow32;
@@ -71,6 +89,9 @@ private:
   bool hasStorage_ = false;
   bool debugBorders_ = false;
   uint32_t idleEyesSec_ = 0;
+  Page *splashPage_ = nullptr;
+  uint32_t splashSec_ = 0;
+  const char *splashImage_ = nullptr;
 };
 
 /**
@@ -103,6 +124,8 @@ public:
         shell_(Rect(0, 0, panel_.width, panel_.height)) {}
 
   ~Flow32() {
+    splashFreePng(splashPixels_);
+    splashPixels_ = nullptr;
     if (begun_) {
       if (AppBase *a = activeApp()) a->close();
     }
@@ -152,6 +175,13 @@ public:
   Flow32 &input(InputSource &source) {
     if (extraInputCount_ >= kMaxExtraInputs) return *this;
     extraInputs_[extraInputCount_++] = &source;
+    return *this;
+  }
+
+  /** Bind product AA faces to Title / TitleLarge. Call before begin(). */
+  Flow32 &titleFonts(const AAFont *px16, const AAFont *px22,
+                     const AAFont *px34) {
+    canvas_.setTitleFonts(px16, px22, px34);
     return *this;
   }
 
@@ -207,7 +237,9 @@ public:
 
   bool toastVisible() const override { return shell_.toastVisible(); }
 
-  bool overlaySuppressesPresent() const override { return idleShowing_; }
+  bool overlaySuppressesPresent() const override {
+    return idleShowing_ || splashShowing_;
+  }
 
   Storage *storage() override { return storage_; }
 
@@ -283,7 +315,7 @@ public:
     Serial.printf("Heap before assets: %u\n", (unsigned)ESP.getFreeHeap());
 
     pinMode(panel_.pinBl, OUTPUT);
-    digitalWrite(panel_.pinBl, HIGH);
+    digitalWrite(panel_.pinBl, panel_.blActiveHigh ? LOW : HIGH);
 
     // no_psram: panel FB is ~134KB. Load icon index before the FB, but defer
     // emoji until after display — both indexes + FB do not fit together.
@@ -317,7 +349,6 @@ public:
                     (unsigned)display_.bufferBytes());
       return false;
     }
-    display_.setBacklight(true);
     Serial.printf("Display begin ok (heap=%u)\n",
                   (unsigned)ESP.getFreeHeap());
 
@@ -350,26 +381,45 @@ public:
     UIDebug::borders = config_.debugBorders();
 
     shell_.setPanel(panelRect());
-    if (AppBase *a = activeApp()) {
-      shell_.setApp(a);
-      if (a->appName()[0]) {
-        RamManager::setForeground(a->appName());
-      }
-      if (!a->open()) {
-        Serial.println("App: open failed — using defaults");
-      }
-    }
 
     begun_ = true;
     lastMs_ = millis();
     lastInputMs_ = lastMs_;
+
+    if (config_.splashPage() && config_.splashSec() > 0) {
+      prepareSplash();
+      paintSplash();
+      splashShowing_ = true;
+      splashBlOnMs_ = lastMs_ + kSplashBacklightDelayMs;
+      splashUntilMs_ = splashBlOnMs_ + config_.splashSec() * 1000u;
+      return true;
+    }
+
+    openFirstApp();
     shell_.frame(canvas_, input_, 0.04f);
+    backlightOn_ = true;
+    display_.setBacklight(true);
     return true;
   }
 
   void tick() {
     if (!begun_) return;
-    display_.setBacklight(true);
+    if (backlightOn_) display_.setBacklight(true);
+
+    if (splashShowing_) {
+      const uint32_t now = millis();
+      if (!backlightOn_ && now >= splashBlOnMs_) {
+        backlightOn_ = true;
+        display_.setBacklight(true);
+      }
+      if (now < splashUntilMs_) {
+        if (now - lastMs_ < 16) return;
+        lastMs_ = now;
+        return;
+      }
+      finishSplash();
+      return;
+    }
 
     const uint32_t now = millis();
     // Sampled around poll() so only real source events count as activity —
@@ -423,6 +473,63 @@ public:
   }
 
 private:
+  void openFirstApp() {
+    if (AppBase *a = activeApp()) {
+      shell_.setApp(a);
+      if (a->appName()[0]) {
+        RamManager::setForeground(a->appName());
+      }
+      if (!a->open()) {
+        Serial.println("App: open failed — using defaults");
+      }
+    }
+  }
+
+  void prepareSplash() {
+    Page *p = config_.splashPage();
+    if (!p) return;
+    p->setViewport(panelRect());
+    const char *path = config_.splashImage();
+    if (!path || !path[0]) return;
+
+    p->setContentBackground(0);
+    p->beginUI();
+    if (storage_ && storage_->ready() &&
+        splashLoadPng(storage_, path, &splashPixels_, &splashW_, &splashH_)) {
+      p->add(p->image(splashPixels_, splashW_, splashH_)
+                 .style(Style()
+                            .setWidth(Length::Pct(100))
+                            .setHeight(Length::Px(panel_.height))
+                            .setFit(ImageFit::Contain)));
+    } else {
+      Serial.printf("Splash: failed to load %s\n", path);
+    }
+  }
+
+  void paintSplash() {
+    Page *p = config_.splashPage();
+    if (!p) return;
+    p->setViewport(panelRect());
+    p->setContentBackground(0);
+    canvas_.clear(0);
+    p->layoutUI(canvas_);
+    p->invalidateContent();
+    p->drawUI(canvas_, true);
+  }
+
+  void finishSplash() {
+    splashShowing_ = false;
+    if (Page *p = config_.splashPage()) p->beginUI();
+    splashFreePng(splashPixels_);
+    splashPixels_ = nullptr;
+    splashW_ = 0;
+    splashH_ = 0;
+    lastMs_ = millis();
+    lastInputMs_ = lastMs_;
+    openFirstApp();
+    shell_.frame(canvas_, input_, 0.04f);
+  }
+
   /**
    * The press that wakes the device only wakes it — dropping the queue stops
    * the app also acting on it. Content under the eyes may be stale on the
@@ -493,4 +600,13 @@ private:
   IdleEyes idleEyes_{};
   uint32_t lastInputMs_ = 0;
   bool idleShowing_ = false;
+
+  static constexpr uint32_t kSplashBacklightDelayMs = 1000;
+  uint16_t *splashPixels_ = nullptr;
+  int16_t splashW_ = 0;
+  int16_t splashH_ = 0;
+  uint32_t splashUntilMs_ = 0;
+  uint32_t splashBlOnMs_ = 0;
+  bool splashShowing_ = false;
+  bool backlightOn_ = false;
 };

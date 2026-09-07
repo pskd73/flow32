@@ -118,6 +118,18 @@ public:
   void setIconSd(IconSd *sd) { iconSd_ = sd; }
   IconSd *iconSd() const { return iconSd_; }
 
+  /**
+   * Optional AA faces for FontRole::Title / TitleLarge (16/22/34 px).
+   * Null keeps the built-in Google Sans title mapping. Missing sizes are
+   * skipped when picking the nearest baked face.
+   */
+  void setTitleFonts(const AAFont *px16, const AAFont *px22,
+                     const AAFont *px34) {
+    title16_ = px16;
+    title22_ = px22;
+    title34_ = px34;
+  }
+
   DrawResult drawText(const char *text, const TextStyle &style,
                       bool advance = true);
   DrawResult drawText(const Rect &box, const char *text, const TextStyle &style,
@@ -177,6 +189,9 @@ private:
   int16_t originY_ = 0;
   int16_t lastLineH_ = 0;
   const AAFont *aaFont_ = nullptr;
+  const AAFont *title16_ = nullptr;
+  const AAFont *title22_ = nullptr;
+  const AAFont *title34_ = nullptr;
   const ColorEmojiAtlas *emojiAtlas_ = nullptr;
   ColorEmojiSd *emojiSd_ = nullptr;
   IconSd *iconSd_ = nullptr;
@@ -187,6 +202,7 @@ private:
   uint8_t rootCount_ = 0;
 
   void applyFont(FontRole role);
+  const AAFont *pickTitleFont(int16_t targetPx) const;
   int16_t fontLineHeight() const;
   int16_t fontBaseline() const;
   int16_t measureCharWidth(char c) const;

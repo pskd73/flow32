@@ -20,6 +20,7 @@
 #include "IdleEyes.h"
 #include "Storage.h"
 #include "StorageConfig.h"
+#include "SplashPng.h"
 
 #include "ui/Style.h"
 #include "ui/Theme.h"

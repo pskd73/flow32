@@ -58,6 +58,33 @@ void Canvas::newLine(int16_t extra) {
 
 void Canvas::gap(int16_t dy) { cy_ = static_cast<int16_t>(cy_ + sx(dy)); }
 
+const AAFont *Canvas::pickTitleFont(int16_t targetPx) const {
+  struct Cand {
+    const AAFont *font;
+    int16_t size;
+  };
+  Cand cands[3];
+  uint8_t n = 0;
+  if (title16_) cands[n++] = {title16_, 16};
+  if (title22_) cands[n++] = {title22_, 22};
+  if (title34_) cands[n++] = {title34_, 34};
+  if (n == 0) return nullptr;
+
+  auto dist = [](int16_t a, int16_t b) -> int16_t {
+    return a > b ? static_cast<int16_t>(a - b) : static_cast<int16_t>(b - a);
+  };
+  const AAFont *best = cands[0].font;
+  int16_t bestD = dist(targetPx, cands[0].size);
+  for (uint8_t i = 1; i < n; i++) {
+    const int16_t d = dist(targetPx, cands[i].size);
+    if (d < bestD) {
+      bestD = d;
+      best = cands[i].font;
+    }
+  }
+  return best;
+}
+
 void Canvas::applyFont(FontRole role) {
   aaFont_ = nullptr;
   const float s = uiScale();
@@ -69,8 +96,13 @@ void Canvas::applyFont(FontRole role) {
   // AA GoogleSans roles: pick nearest baked size — never stretch bitmaps.
   // Below the smallest AA face (~16), fall back to GFX 9pt / default so
   // uiScale < ~0.5 still shrinks type (spacing already scales continuously).
-  const bool aaRole = role == FontRole::Small || role == FontRole::Body ||
-                      role == FontRole::BodyBold || role == FontRole::BodyLarge;
+  // Title uses the same sizes; a product can override the faces via
+  // setTitleFonts().
+  const bool titleRole =
+      role == FontRole::Title || role == FontRole::TitleLarge;
+  const bool aaRole = titleRole || role == FontRole::Small ||
+                      role == FontRole::Body || role == FontRole::BodyBold ||
+                      role == FontRole::BodyLarge;
   if (aaRole) {
     int16_t design = 22;
     bool wantBold = false;
@@ -79,6 +111,7 @@ void Canvas::applyFont(FontRole role) {
       design = 16;
       break;
     case FontRole::Body:
+    case FontRole::Title:
       design = 22;
       break;
     case FontRole::BodyBold:
@@ -86,6 +119,7 @@ void Canvas::applyFont(FontRole role) {
       wantBold = true;
       break;
     case FontRole::BodyLarge:
+    case FontRole::TitleLarge:
       design = 34;
       break;
     default:
@@ -100,6 +134,14 @@ void Canvas::applyFont(FontRole role) {
     if (target < 14) {
       display_.useFontSmall(); // GFX 9pt, no AA
       return;
+    }
+
+    if (titleRole) {
+      const AAFont *custom = pickTitleFont(target);
+      if (custom) {
+        aaFont_ = custom;
+        return;
+      }
     }
 
     auto dist = [](int16_t a, int16_t b) -> int16_t {

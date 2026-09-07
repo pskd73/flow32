@@ -6,21 +6,21 @@
 namespace {
 constexpr int16_t kIconDesign = 18;
 constexpr int16_t kCheckDesign = 16;
-constexpr int16_t kRowPadV = 6;
+constexpr int16_t kRowPadV = 8;
 constexpr int16_t kRowPadH = 10;
 constexpr int16_t kIconGap = 8;
-/** Title stack height (Small baseline is 18; full yAdvance is ~25). */
-constexpr uint8_t kTitleLineH = 18;
+/** Title stack height (Title/22px baseline ~23–24; yAdvance ~32–33). */
+constexpr uint8_t kTitleLineH = 28;
 /** Description wrap stride (was 12; +0.5 line ≈ +6). */
 constexpr uint8_t kDescLineH = 18;
 /** Space between title and description (design px). */
 constexpr int16_t kTitleDescGap = 0;
 /**
- * Typical capital bitmap height for FontRole::Small (GoogleSans16aa).
+ * Typical capital bitmap height for FontRole::Title at 22px.
  * Used to optically center title ink with the Lucide icon square — drawText
  * puts the baseline at ty+lineHeight, so glyphs sit low in the line box.
  */
-constexpr int16_t kSmallCapH = 12;
+constexpr int16_t kSmallCapH = 16;
 } // namespace
 
 // --- UISelectOption --------------------------------------------------------
@@ -91,7 +91,7 @@ void UISelectOption::layoutSelf(int16_t x, int16_t y, int16_t availW) {
   int16_t textH = 0;
   if (host) {
     TextStyle ts;
-    ts.font = FontRole::Small;
+    ts.font = FontRole::Title;
     ts.lineHeight = kTitleLineH;
     ts.lineGap = 0;
     if (title_ && title_[0]) {
@@ -163,13 +163,14 @@ void UISelectOption::paintSelf(Canvas &canvas) {
   int16_t ty = content.y;
   if (iconName_ && iconName_[0] && title_ && title_[0]) {
     // Center capital ink with the icon: baseline at ty+kTitleLineH.
-    ty = static_cast<int16_t>(content.y + iconPx / 2 -
-                              static_cast<int16_t>(kTitleLineH) +
-                              kSmallCapH / 2);
+    const int16_t aligned = static_cast<int16_t>(
+        content.y + iconPx / 2 - static_cast<int16_t>(kTitleLineH) +
+        kSmallCapH / 2);
+    if (aligned > ty) ty = aligned;
   }
   if (title_ && title_[0]) {
     TextStyle ts;
-    ts.font = FontRole::Small;
+    ts.font = FontRole::Title;
     ts.color = th.baseContent;
     ts.lineHeight = kTitleLineH;
     ts.lineGap = 0;

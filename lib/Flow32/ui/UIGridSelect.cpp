@@ -8,7 +8,7 @@ constexpr int16_t kIconDesign = 28;
 constexpr int16_t kIconTitleGap = 6;
 constexpr int16_t kCellPadV = 10;
 constexpr int16_t kCellPadH = 8;
-constexpr uint8_t kTitleLineH = 16;
+constexpr uint8_t kTitleLineH = 28;
 constexpr int16_t kTitleMaxLines = 2;
 constexpr int16_t kDefaultGap = 8;
 constexpr uint8_t kDefaultCols = 2;
@@ -79,7 +79,7 @@ void UIGridSelectOption::layoutSelf(int16_t x, int16_t y, int16_t availW) {
   int16_t textH = 0;
   if (host && title_ && title_[0] && innerW > 0) {
     TextStyle ts;
-    ts.font = FontRole::Small;
+    ts.font = FontRole::Title;
     ts.lineHeight = kTitleLineH;
     ts.lineGap = 0;
     textH = host->measureTextHeight(title_, innerW, ts);
@@ -131,7 +131,7 @@ void UIGridSelectOption::paintSelf(Canvas &canvas) {
 
   if (title_ && title_[0]) {
     TextStyle ts;
-    ts.font = FontRole::Small;
+    ts.font = FontRole::Title;
     ts.color = th.baseContent;
     ts.lineHeight = kTitleLineH;
     ts.lineGap = 0;

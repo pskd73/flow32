@@ -58,8 +58,8 @@ public:
   virtual bool toastVisible() const { return false; }
 
   /**
-   * True while a full-panel overlay (idle eyes) owns the glass. Apps and Shell
-   * chrome must not SPI-present — the overlay clears and presents the panel.
+   * True while a full-panel overlay (splash, idle eyes) owns the glass. Apps
+   * and Shell chrome must not SPI-present — the overlay presents the panel.
    */
   virtual bool overlaySuppressesPresent() const { return false; }
 

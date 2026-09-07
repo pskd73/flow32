@@ -15,7 +15,7 @@ Display::Display(const DisplayPanel &panel)
 
 bool Display::begin() {
   pinMode(panel_.pinBl, OUTPUT);
-  digitalWrite(panel_.pinBl, panel_.blActiveHigh ? HIGH : LOW);
+  digitalWrite(panel_.pinBl, panel_.blActiveHigh ? LOW : HIGH);
 
   // Hardware SPI only — the 5-arg Adafruit_ST7735(cs,dc,mosi,sclk,rst)
   // constructor is software (bit-bang) SPI and paints a visible row-by-row wave.
@@ -38,8 +38,6 @@ bool Display::begin() {
     st7789_->setRotation(panel_.rotation);
     tft_ = st7789_;
   }
-
-  setBacklight(true);
 
   const size_t bytes = bufferBytes();
   fbPanel_ =
